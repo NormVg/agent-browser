@@ -6,9 +6,11 @@
 import { getWeather } from './weather.js';
 import { calculate } from './calculator.js';
 import { getCurrentTime } from './time.js';
+import { delegateToSkillAgent } from './delegate.js';
 
 export const tools = {
   getWeather,
   calculate,
   getCurrentTime,
+  delegateToSkillAgent,
 };

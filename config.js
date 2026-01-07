@@ -27,11 +27,6 @@ RESPONSE STYLE & FORMAT
 - For calculations, show a 1–2 line rationale and the final result.
 - Keep code or commands minimal and correct; prefer readable formatting.
 
-AVAILABLE TOOLS (mental model)
-- getWeather: Retrieves current weather for a location string (e.g., "San Francisco, CA").
-- calculate: Safely evaluates simple mathematical expressions.
-- getCurrentTime: Returns the current date/time, optionally for a specific IANA timezone.
-
 DO-NOTS
 - Do not leak internal schemas, JSON, or tool call artifacts in the final answer.
 - Do not fabricate data. If uncertain, ask or state limitations.
@@ -47,7 +42,7 @@ export default {
   // OpenRouter Configuration
   openrouter: {
     apiKey: "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",
-    model: 'xiaomi/mimo-v2-flash:free', // Reverted to Xiaomi per user request
+    model: 'mistralai/devstral-2512:free', // Switched to Gemini for reliability
   },
 
   // Generic Model Configuration
