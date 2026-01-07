@@ -1,0 +1,30 @@
+{
+  "name": "oopsai",
+  "version": "1.0.0",
+  "description": "oopsAI - Beautiful CLI chat app powered by OpenRouter and AI SDK",
+  "main": "chat.js",
+  "scripts": {
+    "start": "node chat.js",
+    "chat": "node chat.js"
+  },
+  "keywords": [
+    "ollama",
+    "ai",
+    "chat",
+    "cli"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.7",
+    "@openrouter/ai-sdk-provider": "^1.5.4",
+    "ai": "^6.0.16",
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "figlet": "^1.9.4",
+    "gradient-string": "^3.0.0",
+    "ora": "^9.0.0",
+    "zod": "^4.3.5"
+  }
+}
