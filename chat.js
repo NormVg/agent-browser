@@ -11,6 +11,7 @@ import config from './config.js';
 import { tools } from './tools/index.js';
 import { checkApiKey, getModel } from './lib/ai.js';
 import { registry } from './lib/plugins/registry.js';
+import { logger } from './lib/logger.js';
 import {
   colors,
   showWelcomeBanner,
@@ -24,6 +25,8 @@ import {
 // Initialize
 checkApiKey();
 await registry.loadPlugins(); // Load available skills
+await logger.init(); // Initialize logging
+await logger.logSystem('Chat session started');
 showWelcomeBanner();
 
 // Debug: Log available tools
@@ -45,17 +48,21 @@ const chat = () => {
 
   rl.on('line', async (input) => {
     const userMessage = input.trim();
+    const userInput = input.trim();
 
-    if (!userMessage) {
+    if (!userInput) {
       rl.prompt();
       return;
     }
 
     // Add user message to history
-    messages.push({ role: 'user', content: userMessage });
+    messages.push({ role: 'user', content: userInput });
+
+    // Log user message
+    await logger.logUser(userInput);
 
     // Display user message box
-    displayUserBox(userMessage);
+    displayUserBox(userInput);
     console.log(); // Spacing after box
 
     // Start spinner
@@ -124,12 +131,18 @@ ${availableSkills}
           const args = part.args ?? part.input;
           displayToolCall(part.toolName, args);
           toolCalls.push({ name: part.toolName, args });
+
+          // Log tool call
+          await logger.logToolCall(part.toolName, args);
         }
         // Handle tool results
         else if (part.type === 'tool-result') {
           const resultData = part.result || part.output;
           displayToolResult(resultData);
           toolResults.push({ name: part.toolName, result: resultData });
+
+          // Log tool result
+          await logger.logToolResult(part.toolName, resultData);
         }
       }
 
@@ -307,10 +320,57 @@ ${availableSkills}
             messages.push({ role: 'assistant', content: fullResponse });
           }
         }
+      } // End of main else block
 
+      // 🔥 ALWAYS LOG: Assistant response (moved outside conditionals)
+      if (fullResponse) {
+        await logger.logAssistant(fullResponse);
       }
+
+      // 🧠 MEMORY AGENT: Automatic intelligent memory management (moved outside conditionals)
+      try {
+        console.log(chalk.dim('\n[DEBUG] Importing Memory Agent...'));
+        const { runMemoryAgent } = await import('./agents/memory-agent/agent.js');
+
+        console.log(chalk.dim('[DEBUG] Memory Agent imported, preparing context...'));
+
+        // Construct context for memory agent
+        const conversationContext = `
+USER: ${userInput}
+ASSISTANT: ${fullResponse}
+
+Analyze this conversation turn and:
+1. Extract any important facts, entities, or preferences
+2. Create or update relevant memory nodes
+3. Link related information together
+4. Avoid duplicates (search before creating)
+5. Keep memory organized and structured
+
+Focus on: names, preferences, projects, companies, skills, tools, dates, relationships.
+`;
+
+        console.log(chalk.dim('[DEBUG] Calling Memory Agent...'));
+
+        // Run memory agent in background (silently)
+        runMemoryAgent(conversationContext, true).then(() => {
+          console.log(chalk.green('[DEBUG] Memory Agent completed successfully'));
+        }).catch(err => {
+          console.error(chalk.red('[DEBUG] Memory Agent error:'), err.message);
+          console.error(err.stack);
+        });
+
+      } catch (err) {
+        // Silent fail - don't interrupt conversation
+        console.error('Memory Agent initialization error:', err.message);
+        console.error(err.stack);
+      }
+
+
     } catch (error) {
       spinner.stop();
+
+      // Log error
+      await logger.logError(error, 'Main conversation loop');
 
       // Handle "empty output" error by attempting a Force Reply
       if (error.message && (error.message.includes('model output must contain either output text or tool calls') || error.message.includes('empty response'))) {
