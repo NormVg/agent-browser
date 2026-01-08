@@ -42,7 +42,7 @@ export default {
   // OpenRouter Configuration
   openrouter: {
     apiKey: "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",
-    model: 'mistralai/devstral-2512:free', // Switched to Gemini for reliability
+    model: 'xiaomi/mimo-v2-flash:free', // Reverted to Xiaomi per user request
   },
 
   // Generic Model Configuration

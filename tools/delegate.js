@@ -1,16 +1,16 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { runSkillAgent } from './skill-agent.js';
+import { runSkillAgent } from '../agents/skill-agent/agent.js';
 
 /**
- * Delegate to Skill Agent Tool
- * Allows the Main Agent to delegate complex skill-based tasks to a specialized worker.
+ * Delegate to Skill Agent
+ * Delegates complex tasks to a specialized autonomous agent that can choose and execute skills.
  */
 export const delegateToSkillAgent = tool({
-  description: 'Delegate a task to a specialized Skill Agent. Use this when the user requests a specific skill (e.g., System Info, Git, etc.).',
+  description: 'Delegate a task to a specialized autonomous Skill Agent. The agent will analyze the goal, choose the appropriate skill from available plugins, and execute it. Use this when the user requests skill-based operations.',
   inputSchema: z.object({
-    skillId: z.string().describe('The ID of the skill to use (e.g., "system-info", "git-manager").'),
-    goal: z.string().describe('A clear description of what needs to be achieved using this skill.'),
+    skillId: z.string().optional().describe('Optional: The ID of a specific skill to use (e.g., "system-info", "git-manager"). If not provided, the agent will choose the best skill for the goal.'),
+    goal: z.string().describe('A clear description of what needs to be achieved.'),
   }),
   execute: async ({ skillId, goal }) => {
     // Call the worker agent
