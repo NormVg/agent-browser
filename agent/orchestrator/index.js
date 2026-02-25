@@ -63,25 +63,45 @@ export class Orchestrator {
       switch (action.action) {
         case 'navigate':
           await this.browser.navigate(action.url);
-          this.memory.logOutcome(true, `Loaded ${action.url}`);
+          {
+            const v = await this.browser.verifyAction(action);
+            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
+            this.memory.logOutcome(v.ok, v.detail);
+            if (!v.ok) return 'replan';
+          }
           return 'ok';
 
         case 'click':
           if (!action.elementId) throw new Error("Missing elementId for click");
           await this.browser.click(String(action.elementId));
-          this.memory.logOutcome(true, `Clicked #${action.elementId}`);
+          {
+            const v = await this.browser.verifyAction(action);
+            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
+            this.memory.logOutcome(v.ok, v.detail);
+            if (!v.ok) return 'replan';
+          }
           return 'ok';
 
         case 'type':
           if (!action.elementId || action.text === undefined) throw new Error("Missing elementId or text for type");
           await this.browser.type(String(action.elementId), action.text);
-          this.memory.logOutcome(true, `Typed into #${action.elementId}`);
+          {
+            const v = await this.browser.verifyAction(action);
+            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
+            this.memory.logOutcome(v.ok, v.detail);
+            if (!v.ok) return 'replan';
+          }
           return 'ok';
 
         case 'selectOption':
           if (!action.elementId || !action.value) throw new Error("Missing elementId or value for selectOption");
           await this.browser.selectOption(String(action.elementId), action.value);
-          this.memory.logOutcome(true, `Selected "${action.value}" in #${action.elementId}`);
+          {
+            const v = await this.browser.verifyAction(action);
+            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
+            this.memory.logOutcome(v.ok, v.detail);
+            if (!v.ok) return 'replan';
+          }
           return 'ok';
 
         case 'pressEnter':

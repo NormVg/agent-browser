@@ -151,6 +151,80 @@ export class BrowserRuntime {
     }
   }
 
+  // ------------- VERIFICATION LAYER -------------
+
+  /**
+   * Verify whether the last action actually succeeded.
+   * Returns { ok: boolean, detail: string }
+   */
+  async verifyAction(action) {
+    try {
+      await this.page.waitForTimeout(300); // Small settle time
+
+      switch (action.action) {
+        case 'navigate': {
+          const currentUrl = this.page.url();
+          if (currentUrl === 'about:blank' || currentUrl === '') {
+            return { ok: false, detail: `Navigation did not load — still on blank page` };
+          }
+          return { ok: true, detail: `On ${currentUrl}` };
+        }
+
+        case 'type': {
+          const value = await this.page.evaluate((id) => {
+            const el = document.querySelector(`[data-agent-id="${id}"]`);
+            return el?.value || el?.innerText || '';
+          }, String(action.elementId));
+          const expected = action.text;
+          if (value.includes(expected) || expected.includes(value)) {
+            return { ok: true, detail: `Field contains "${value.substring(0, 50)}"` };
+          }
+          return { ok: false, detail: `Expected "${expected}" but field has "${value.substring(0, 50)}"` };
+        }
+
+        case 'click': {
+          // Check if a radio/checkbox was toggled
+          const state = await this.page.evaluate((id) => {
+            const el = document.querySelector(`[data-agent-id="${id}"]`);
+            if (!el) return { exists: false };
+            return {
+              exists: true,
+              checked: el.checked || el.getAttribute('aria-checked') === 'true',
+              role: el.getAttribute('role'),
+            };
+          }, String(action.elementId));
+          if (!state.exists) {
+            return { ok: false, detail: `Element #${action.elementId} no longer exists (page may have changed)` };
+          }
+          if (state.role === 'radio' || state.role === 'checkbox') {
+            return state.checked
+              ? { ok: true, detail: `${state.role} #${action.elementId} is now checked ✓` }
+              : { ok: false, detail: `${state.role} #${action.elementId} was NOT toggled` };
+          }
+          // For normal buttons/links — just confirm the element existed
+          return { ok: true, detail: `Clicked #${action.elementId}` };
+        }
+
+        case 'selectOption': {
+          const selected = await this.page.evaluate((id) => {
+            const el = document.querySelector(`[data-agent-id="${id}"]`);
+            if (el?.tagName === 'SELECT') return el.options[el.selectedIndex]?.text || '';
+            return '';
+          }, String(action.elementId));
+          if (selected && action.value && selected.toLowerCase().includes(action.value.toLowerCase())) {
+            return { ok: true, detail: `Selected "${selected}"` };
+          }
+          return { ok: false, detail: `Expected "${action.value}" but got "${selected}"` };
+        }
+
+        default:
+          return { ok: true, detail: 'No verification needed' };
+      }
+    } catch (e) {
+      return { ok: true, detail: `Verify skipped: ${e.message}` };
+    }
+  }
+
   async scroll(direction) {
     if (direction === 'down') {
       await this.page.evaluate(() => window.scrollBy(0, window.innerHeight * 0.8));
