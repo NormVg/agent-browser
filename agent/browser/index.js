@@ -79,10 +79,46 @@ export class BrowserRuntime {
     }
   }
 
+  /**
+   * Visual highlight — shows a red pulse outline on the element the agent is about to interact with.
+   */
+  async highlight(elementId) {
+    try {
+      await this.page.evaluate((id) => {
+        const el = document.querySelector(`[data-agent-id="${id}"]`);
+        if (!el) return;
+        // Inject keyframes once
+        if (!document.getElementById('agent-highlight-style')) {
+          const style = document.createElement('style');
+          style.id = 'agent-highlight-style';
+          style.textContent = `
+            @keyframes agent-pulse {
+              0%   { outline-color: #ff3333; box-shadow: 0 0 0 0 rgba(255,51,51,0.6); }
+              50%  { outline-color: #ff6666; box-shadow: 0 0 12px 4px rgba(255,51,51,0.3); }
+              100% { outline-color: #ff3333; box-shadow: 0 0 0 0 rgba(255,51,51,0); }
+            }
+          `;
+          document.head.appendChild(style);
+        }
+        el.style.outline = '3px solid #ff3333';
+        el.style.outlineOffset = '2px';
+        el.style.animation = 'agent-pulse 0.6s ease-in-out 2';
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+          el.style.outline = '';
+          el.style.outlineOffset = '';
+          el.style.animation = '';
+        }, 1500);
+      }, elementId);
+      await this.page.waitForTimeout(400); // Let the user see it
+    } catch (_) { }
+  }
+
   async click(elementId) {
     try {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
+      await this.highlight(elementId);
       await locator.click({ timeout: 10000 });
     } catch (e) {
       throw new Error(`Click #${elementId} failed: ${e.message}`);
@@ -93,6 +129,7 @@ export class BrowserRuntime {
     try {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
+      await this.highlight(elementId);
       await locator.fill(text);
     } catch (e) {
       throw new Error(`Type into #${elementId} failed: ${e.message}`);
@@ -107,6 +144,7 @@ export class BrowserRuntime {
   async selectOption(elementId, value) {
     try {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
+      await this.highlight(elementId);
       await locator.selectOption(value);
     } catch (e) {
       throw new Error(`Select option on #${elementId} failed: ${e.message}`);
