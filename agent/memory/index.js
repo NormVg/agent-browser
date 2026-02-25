@@ -39,30 +39,39 @@ export class Memory {
   }
 
   /**
-   * Retrieve the last N trace entries formatted as a readable
-   * conversational step log for the planner.
+   * Get a compact step log for the planner.
+   * Last observe + last 8 action/outcome pairs — capped to avoid prompt bloat.
    */
-  getStepLog(limit = 12) {
-    return this.trace.slice(-limit).map(entry => {
+  getStepLog() {
+    // Always show the most recent observation
+    const lastObserve = [...this.trace].reverse().find(e => e.type === 'observe');
+    // Last 8 action + outcome pairs
+    const recent = this.trace
+      .filter(e => e.type === 'action' || e.type === 'success' || e.type === 'failure')
+      .slice(-16); // 8 pairs max
+
+    const entries = lastObserve ? [lastObserve, ...recent] : recent;
+
+    return entries.map(entry => {
       if (entry.type === 'observe') {
         return `🌐 Page: ${entry.url} | "${entry.title}" | ${entry.elementCount} elements`;
       }
       if (entry.type === 'action') {
         const a = entry.action;
-        if (a.action === 'navigate') return `➡️  Action: navigate to ${a.url}`;
-        if (a.action === 'click') return `🖱️  Action: click element #${a.elementId}`;
-        if (a.action === 'type') return `⌨️  Action: type "${a.text}" into #${a.elementId}`;
-        if (a.action === 'pressEnter') return `↩️  Action: press Enter`;
-        if (a.action === 'scroll') return `🔽 Action: scroll ${a.direction}`;
-        if (a.action === 'wait') return `⏳ Action: wait ${a.milliseconds}ms`;
-        if (a.action === 'extract') return `📋 Action: extract — ${a.instruction}`;
-        if (a.action === 'askUser') return `❓ Action: asked user — ${a.question}`;
-        if (a.action === 'userResponse') return `💬 User said: ${a.response}`;
-        if (a.action === 'finish') return `✅ Action: finish — ${a.result}`;
-        if (a.action === 'error') return `⚠️  Planner error: ${a.result || a.message}`;
-        return `➤  Action: ${JSON.stringify(a)}`;
+        if (a.action === 'navigate') return `➡️  navigate → ${a.url}`;
+        if (a.action === 'click') return `🖱️  click #${a.elementId}`;
+        if (a.action === 'type') return `⌨️  type "${a.text}" → #${a.elementId}`;
+        if (a.action === 'pressEnter') return `↩️  pressEnter`;
+        if (a.action === 'scroll') return `🔽 scroll ${a.direction}`;
+        if (a.action === 'wait') return `⏳ wait ${a.milliseconds}ms`;
+        if (a.action === 'extract') return `📋 extract: ${a.instruction}`;
+        if (a.action === 'askUser') return `❓ asked: ${a.question}`;
+        if (a.action === 'userResponse') return `💬 user: ${a.response}`;
+        if (a.action === 'finish') return `✅ finish: ${a.result}`;
+        if (a.action === 'error') return `⚠️  error: ${a.result || a.message}`;
+        return `➤  ${JSON.stringify(a)}`;
       }
-      if (entry.type === 'success') return `✓  Succeeded${entry.detail ? ': ' + entry.detail : ''}`;
+      if (entry.type === 'success') return `✓  ${entry.detail}`;
       if (entry.type === 'failure') return `✗  FAILED: ${entry.detail}`;
       return '';
     }).filter(Boolean).join('\n');

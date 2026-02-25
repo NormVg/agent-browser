@@ -2,18 +2,24 @@ import { getModel } from '../../lib/ai.js';
 import { generateText } from 'ai';
 import chalk from 'chalk';
 
+// Steps that can run without any live page data (no elementId needed)
+export const STATIC_ACTIONS = new Set(['navigate', 'wait', 'scroll', 'pressEnter']);
+
 export class Planner {
+
   /**
-   * Decide the next action based on the goal, memory trace, and current page state.
+   * CHAIN MODE — Ask the model for a sequence of steps upfront.
+   * Returns an array of action objects.
+   * Dynamic steps (click/type) are placeholders until re-plan.
    */
-  async decideNextAction(goal, memory, pageState) {
+  async planChain(goal, memory, pageState) {
     const elementsForContext = (pageState.elements || [])
       .filter(el => el.inViewport)
       .slice(0, 40);
 
-    const stepLog = memory.getStepLog(14);
+    const stepLog = memory.getStepLog();
 
-    const systemPrompt = `You are the brain of an autonomous Browser Agent. Think step-by-step.
+    const prompt = `You are the brain of an autonomous Browser Agent.
 
 ## GOAL
 "${goal}"
@@ -30,9 +36,14 @@ ${elementsForContext.length > 0
         ? elementsForContext.map(el =>
           `  [${el.id}] ${el.tag}${el.type ? `[${el.type}]` : ''} "${el.text || el.ariaLabel || ''}"${el.href ? ` → ${el.href}` : ''}`
         ).join('\n')
-        : '  (none visible — page may still be loading, try wait or scroll)'}
+        : '  (none visible — page may still be loading)'}
 
-## AVAILABLE ACTIONS
+## YOUR JOB
+Output a JSON array of sequential steps to accomplish the goal.
+Steps are executed in order. Stop planning once the goal is achievable or finished.
+Plan UP TO 6 steps at a time — keep chains short and focused.
+
+## AVAILABLE STEP TYPES
 {"action": "navigate", "url": "https://..."}
 {"action": "click", "elementId": "NUMERIC_ID"}
 {"action": "type", "elementId": "NUMERIC_ID", "text": "text"}
@@ -43,9 +54,7 @@ ${elementsForContext.length > 0
 {"action": "askUser", "question": "question"}
 {"action": "finish", "result": "final answer or summary"}
 
-## SMART SHORTCUTS — ALWAYS PREFER THESE OVER CLICKING THROUGH UIs
-Use direct URL navigation with query params to save steps:
-
+## SMART SHORTCUTS — ALWAYS USE THESE FIRST
   YouTube search:   https://www.youtube.com/results?search_query=QUERY
   YouTube video:    https://www.youtube.com/watch?v=VIDEO_ID
   Google search:    https://www.google.com/search?q=QUERY
@@ -53,61 +62,67 @@ Use direct URL navigation with query params to save steps:
   Reddit search:    https://www.reddit.com/search/?q=QUERY
   GitHub search:    https://github.com/search?q=QUERY&type=repositories
   Wikipedia:        https://en.wikipedia.org/wiki/QUERY  (spaces → underscores)
-  Etsy search:      https://www.etsy.com/search?q=QUERY
-  Twitter/X search: https://twitter.com/search?q=QUERY
   DuckDuckGo:       https://duckduckgo.com/?q=QUERY
-
+  * and many more which you think can be useful
 Replace spaces in QUERY with + (e.g. "seedhe maut" → "seedhe+maut").
-ALWAYS use a direct URL before trying to click through a site's UI.
 
 ## RULES
-- If on about:blank → use a SMART SHORTCUT to jump directly to the target page.
-- If a click failed → try a different element, scroll to reveal it, or use a direct URL instead.
-- If 0 elements visible → wait 1500ms or scroll down.
-- After typing in a search box → use pressEnter to submit.
-- Never repeat the exact same action that just failed — always try a different approach.
+- Start with a navigate step using SMART SHORTCUTS whenever possible.
+- Never repeat an action that just failed — use a different approach.
+- If you need to click/type something that requires seeing the live page, add just those dynamic steps after initial navigation.
 - Only use askUser for CAPTCHA, 2FA, or genuinely unknown info.
-- Once the goal is complete or you've done everything possible → use finish.`;
+- End with a finish step when the goal is complete.
+
+Output ONLY a valid JSON array, no markdown, no explanation.`;
 
     try {
-      // ── Step 1: Ask the model to reason out loud ──
-      const reasoningResponse = await generateText({
+      // Step 1: Reason out loud
+      const reasoningRes = await generateText({
         model: getModel(),
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: 'Before deciding, briefly explain your reasoning: what do you see, what went wrong before (if anything), and what you plan to do next. Be concise (2-3 sentences).' },
+          { role: 'system', content: prompt },
+          { role: 'user', content: 'Explain your plan briefly (2-3 sentences) before outputting it.' },
         ],
         temperature: 0.3,
-        maxTokens: 120,
+        maxTokens: 150,
       });
+      const reasoning = reasoningRes.text.trim();
+      if (reasoning) console.log(chalk.yellow(`[Thinking] ${reasoning}`));
 
-      const reasoning = reasoningResponse.text.trim();
-      if (reasoning) {
-        console.log(chalk.yellow(`[Thinking] ${reasoning}`));
-      }
-
-      // ── Step 2: Ask for the concrete action JSON ──
-      const actionResponse = await generateText({
+      // Step 2: Get the actual chain
+      const chainRes = await generateText({
         model: getModel(),
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: 'Based on your reasoning, output ONLY the single next action as a JSON object. No markdown, no explanation.' },
+          { role: 'system', content: prompt },
+          { role: 'user', content: 'Now output ONLY the JSON array of steps. No markdown.' },
         ],
         temperature: 0.1,
-        maxTokens: 120,
+        maxTokens: 600,
       });
 
-      let text = actionResponse.text.trim();
-      // Strip markdown code fences
+      let text = chainRes.text.trim();
       text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      // Extract just the JSON object if there's surrounding prose
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) text = jsonMatch[0];
+      // Extract just the JSON array
+      const arrayMatch = text.match(/\[[\s\S]*\]/);
+      if (arrayMatch) text = arrayMatch[0];
 
-      return JSON.parse(text);
+      const chain = JSON.parse(text);
+      if (!Array.isArray(chain)) throw new Error('Planner did not return an array');
+      return chain;
+
     } catch (error) {
-      console.error('[Planner] Failed to decode action:', error.message);
-      return { action: 'error', result: error.message };
+      console.error('[Planner] planChain failed:', error.message);
+      // Fallback: single error action
+      return [{ action: 'error', result: error.message }];
     }
+  }
+
+  /**
+   * SINGLE STEP MODE — used when re-planning after a dynamic step.
+   * Same as before but kept for compatibility.
+   */
+  async decideNextAction(goal, memory, pageState) {
+    const chain = await this.planChain(goal, memory, pageState);
+    return chain[0] || { action: 'error', result: 'Empty chain returned' };
   }
 }
