@@ -2,99 +2,98 @@ import { chromium } from 'playwright';
 import os from 'os';
 import path from 'path';
 
-// User Data Directory — Playwright automatically looks for the 'Default' profile inside this folder.
-const CHROME_PROFILE = path.join(
-  os.homedir(),
-  'Library/Application Support/Google/Chrome'
-);
+// User Data Directory (Playwright automatically uses the 'Default' profile inside)
+const CHROME_PROFILE = path.join(os.homedir(), 'Library/Application Support/Google/Chrome');
+
+// Args to suppress Chrome startup dialogs that block Playwright
+const SHARED_ARGS = [
+  '--no-sandbox',
+  '--disable-blink-features=AutomationControlled',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-session-crashed-bubble',
+  '--disable-infobars',
+  '--disable-features=TranslateUI',
+];
 
 export class BrowserRuntime {
   constructor() {
-    this.browser = null;   // CDP or owned launch
-    this.context = null;
-    this.page = null;
-    this.mode = null;   // 'cdp' | 'owned' | 'sandbox'
-    this.agentPage = null;   // the tab we opened — we only close this
+    this.browser = null;  // Browser object (sandbox/cdp) or null (owned)
+    this.context = null;  // BrowserContext
+    this.page = null;  // Active page
+    this.mode = null;  // 'cdp' | 'owned' | 'sandbox'
+    this.agentPage = null;  // The tab WE opened — the only thing we close
   }
 
   /**
-   * Safe browser init strategy (in order of preference):
+   * Init strategy (in priority order):
+   * 1. CDP    — Chrome already running on :9222 (safest, instant, all accounts)
+   * 2. Owned  — launch Chrome from real profile, open one new tab
+   * 3. Sandbox — fresh blank profile (no logins, but safe)
    *
-   * 1. CDP   — connect to Chrome already running with --remote-debugging-port=9222
-   *            We only close our own page. Chrome and all sessions untouched.
-   * 2. Owned — launch Chrome fresh from the real profile.
-   *            We only close our page; Chrome keeps running with profile intact.
-   * 3. Sandbox — fresh profile. No logins but harmless.
-   *
-   * ⚠️  We NEVER call context.close() on the real profile — that corrupts it.
+   * ⚠️ We NEVER call context.close() on the real profile — that wipes cookies/sessions.
    */
   async init(headless = true) {
     if (this.page) return;
 
-    const launchArgs = [
-      '--no-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--remote-debugging-port=9222',       // opens debug port so next run can connect via CDP
-    ];
-
-    // ── 1. Try CDP first ──────────────────────────────────────────
+    // ── 1. CDP ──────────────────────────────────────────────────────
     try {
       this.browser = await chromium.connectOverCDP('http://localhost:9222');
       this.context = this.browser.contexts()[0];
       this.agentPage = await this.context.newPage();
       this.page = this.agentPage;
       this.mode = 'cdp';
-      console.log('[Browser] Connected to running Chrome via CDP ✓ (all your accounts available)');
+      this.page.setDefaultTimeout(30000);
+      console.log('[Browser] Connected via CDP ✓ (all your accounts available)');
       return;
-    } catch (_) {
-      // Chrome not running with CDP — try launching it ourselves
-    }
+    } catch (_) { /* Chrome not on :9222 */ }
 
-    // ── 2. Launch our own Chrome from real profile ────────────────
+    // ── 2. Owned (real profile) ──────────────────────────────────────
     try {
-      this.browser = await chromium.launchPersistentContext(CHROME_PROFILE, {
+      const ctx = await chromium.launchPersistentContext(CHROME_PROFILE, {
         headless,
         channel: 'chrome',
-        args: launchArgs,
+        args: [...SHARED_ARGS, '--remote-debugging-port=9222'], // next run can use CDP
         viewport: { width: 1280, height: 800 },
+        timeout: 10000, // fail fast if a dialog blocks launch
       });
-      this.context = this.browser;           // launchPersistentContext IS the context
-      this.agentPage = await this.context.newPage();
+      this.browser = null;  // no Browser object — launchPersistentContext returns a Context
+      this.context = ctx;
+      this.agentPage = await ctx.newPage();
       this.page = this.agentPage;
       this.mode = 'owned';
+      this.page.setDefaultTimeout(30000);
       console.log('[Browser] Launched Chrome with your real profile ✓');
       return;
     } catch (e) {
-      if (!e.message.includes('lock') && !e.message.includes('LOCK')) throw e;
-      // Profile locked by another Chrome — must use sandbox
-      console.warn('[Browser] Profile locked. Close Chrome first for account access. Using sandbox fallback.');
+      const locked = e.message.includes('lock') || e.message.includes('LOCK') || e.message.includes('already running');
+      if (!locked) throw e;
+      console.warn('[Browser] Profile locked (Chrome is open). Using sandbox — close Chrome first for account access.');
     }
 
-    // ── 3. Sandboxed fallback ─────────────────────────────────────
-    const fresh = await chromium.launch({ headless, channel: 'chrome', args: ['--no-sandbox'] });
-    this.browser = fresh;
-    this.context = await fresh.newContext({ viewport: { width: 1280, height: 800 } });
+    // ── 3. Sandbox (fallback) ─────────────────────────────────────────
+    this.browser = await chromium.launch({ headless, channel: 'chrome', args: SHARED_ARGS });
+    this.context = await this.browser.newContext({ viewport: { width: 1280, height: 800 } });
     this.agentPage = await this.context.newPage();
     this.page = this.agentPage;
     this.mode = 'sandbox';
-    console.log('[Browser] Running in sandboxed mode (no logins). Start Chrome with --remote-debugging-port=9222 to use your accounts.');
+    this.page.setDefaultTimeout(30000);
+    console.log('[Browser] Sandbox mode (no logins). Run Chrome with --remote-debugging-port=9222 for account access.');
   }
 
   /**
-   * Only close the page we opened.
-   * NEVER close the browser or context when using real profile — that would corrupt it.
+   * Close ONLY the tab we opened.
+   * In sandbox mode: also kills the throwaway browser.
+   * In owned/cdp mode: NEVER touch the context or browser — profile stays intact.
    */
   async close() {
     try {
+      await this.agentPage?.close().catch(() => { });
       if (this.mode === 'sandbox') {
-        // Sandbox — we own the whole browser, safe to kill
-        await this.browser?.close();
-      } else {
-        // Real profile (cdp or owned) — only close the tab we opened
-        await this.agentPage?.close();
-        // If we own the launch, disconnect gracefully (doesn't kill Chrome)
-        if (this.mode === 'owned') await this.browser?.close();
+        await this.context?.close().catch(() => { });
+        await this.browser?.close().catch(() => { });
       }
+      // owned/cdp: Chrome stays running with all sessions intact ✓
     } catch (_) { }
     this.browser = null;
     this.context = null;
@@ -107,9 +106,8 @@ export class BrowserRuntime {
 
   async navigate(url) {
     try {
-      // ✅ Only wait for DOM — not networkidle (which hangs on SPAs / YouTube)
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await this.page.waitForTimeout(1500); // Let JS hydrate briefly
+      await this.page.waitForTimeout(1500);
     } catch (e) {
       console.warn(`[Browser] Navigation timed out for ${url}, continuing with partial page.`);
     }
@@ -129,13 +127,12 @@ export class BrowserRuntime {
     try {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
-      await locator.fill(text); // fill() is faster and more reliable than type()
+      await locator.fill(text);
     } catch (e) {
       throw new Error(`Failed to type into element ${elementId}: ${e.message}`);
     }
   }
 
-  // ✅ New: press Enter — useful after typing in a search box
   async pressEnter() {
     await this.page.keyboard.press('Enter');
     await this.page.waitForTimeout(1500);
@@ -157,16 +154,14 @@ export class BrowserRuntime {
   // ------------- PERCEPTION LAYER -------------
 
   /**
-   * Extracts a simplified DOM snapshot. Injects data-agent-id for clickable elements.
+   * Extracts a simplified DOM snapshot — injects data-agent-id on interactable elements.
    */
   async observeState() {
     if (!this.page) throw new Error('Browser not initialized.');
 
     try {
       await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 });
-    } catch (_) {
-      // Best-effort — continue even if not fully loaded
-    }
+    } catch (_) { }
 
     const state = await this.page.evaluate(() => {
       let idCounter = 1;
