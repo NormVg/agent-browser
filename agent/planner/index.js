@@ -33,9 +33,14 @@ Title: "${pageState.title || 'unknown'}"
 
 ## VISIBLE ELEMENTS (only in viewport)
 ${elementsForContext.length > 0
-        ? elementsForContext.map(el =>
-          `  [${el.id}] ${el.tag}${el.type ? `[${el.type}]` : ''} "${el.text || el.ariaLabel || ''}"${el.href ? ` → ${el.href}` : ''}`
-        ).join('\n')
+        ? elementsForContext.map(el => {
+          let desc = `  [${el.id}] ${el.tag}`;
+          if (el.type) desc += `[${el.type}]`;
+          if (el.role) desc += `(${el.role})`;
+          desc += ` "${el.text || el.ariaLabel || ''}"`; if (el.checked) desc += ' ✓CHECKED';
+          if (el.href) desc += ` → ${el.href}`;
+          return desc;
+        }).join('\n')
         : '  (none visible — page may still be loading)'}
 
 ## YOUR JOB
@@ -47,6 +52,7 @@ Plan UP TO 6 steps at a time — keep chains short and focused.
 {"action": "navigate", "url": "https://..."}
 {"action": "click", "elementId": "NUMERIC_ID"}
 {"action": "type", "elementId": "NUMERIC_ID", "text": "text"}
+{"action": "selectOption", "elementId": "NUMERIC_ID", "value": "option text"}
 {"action": "pressEnter"}
 {"action": "scroll", "direction": "down"}
 {"action": "wait", "milliseconds": 1500}
@@ -71,7 +77,9 @@ Replace spaces in QUERY with + (e.g. "seedhe maut" → "seedhe+maut").
 - Never repeat an action that just failed — use a different approach.
 - If you need to click/type something that requires seeing the live page, add just those dynamic steps after initial navigation.
 - NEVER type passwords, credentials, or login info yourself. If a page needs login, use askUser: {"action": "askUser", "question": "This page requires login. Please log in manually in the browser, then type 'done' here."} — then continue after the user confirms.
-- Only use askUser for CAPTCHA, 2FA, login, or genuinely unknown info.
+- Use askUser for CAPTCHA, 2FA, login, or genuinely unknown info.
+- For FORMS: use click to select radio buttons and checkboxes. Use type for text inputs. Use selectOption for <select> dropdowns. Look for LABEL or heading elements to understand what each field is asking. Scroll down to find more fields or the submit button.
+- Google Forms: radio options show as role="radio", checkboxes as role="checkbox". Click them to toggle. After filling all visible fields, scroll down for more, then click the Submit button.
 - End with a finish step when the goal is complete.
 
 Output ONLY a valid JSON array, no markdown, no explanation.`;

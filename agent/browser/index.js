@@ -104,6 +104,15 @@ export class BrowserRuntime {
     await this.page.waitForTimeout(1500);
   }
 
+  async selectOption(elementId, value) {
+    try {
+      const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
+      await locator.selectOption(value);
+    } catch (e) {
+      throw new Error(`Select option on #${elementId} failed: ${e.message}`);
+    }
+  }
+
   async scroll(direction) {
     if (direction === 'down') {
       await this.page.evaluate(() => window.scrollBy(0, window.innerHeight * 0.8));
@@ -129,7 +138,9 @@ export class BrowserRuntime {
     const state = await this.page.evaluate(() => {
       let idCounter = 1;
       const elements = [];
-      const interactableTags = ['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'];
+      const interactableTags = ['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION'];
+      const formRoles = ['radio', 'checkbox', 'option', 'listbox', 'combobox', 'searchbox', 'button', 'link', 'menuitem', 'switch', 'tab'];
+      const labelTags = ['LABEL', 'LEGEND'];
 
       const walker = document.createTreeWalker(
         document.body || document.documentElement,
@@ -154,16 +165,17 @@ export class BrowserRuntime {
 
         if (!isInteractable) {
           const role = currentNode.getAttribute('role');
-          if (['button', 'link', 'menuitem', 'option', 'combobox', 'searchbox'].includes(role)) {
+          if (role && formRoles.includes(role)) {
             isInteractable = true;
           } else if (currentNode.onclick || currentNode.getAttribute('tabindex') === '0') {
             isInteractable = true;
           }
         }
 
+        const isLabel = labelTags.includes(currentNode.tagName) || currentNode.getAttribute('role') === 'heading';
         const isHeading = ['H1', 'H2', 'H3'].includes(currentNode.tagName);
 
-        if (isInteractable || isHeading) {
+        if (isInteractable || isHeading || isLabel) {
           const rect = currentNode.getBoundingClientRect();
           const inViewport = rect.width > 0 && rect.height > 0 &&
             rect.top >= -100 && rect.bottom <= (window.innerHeight + 100);
@@ -174,16 +186,27 @@ export class BrowserRuntime {
             currentNode.innerText ||
             currentNode.getAttribute('placeholder') ||
             currentNode.value ||
-            currentNode.getAttribute('aria-label') || ''
+            currentNode.getAttribute('aria-label') ||
+            currentNode.getAttribute('data-value') || ''
           ).trim().substring(0, 120);
+
+          // Detect checked/selected state for form controls
+          const role = currentNode.getAttribute('role');
+          const isChecked = currentNode.checked
+            || currentNode.getAttribute('aria-checked') === 'true'
+            || currentNode.getAttribute('aria-selected') === 'true'
+            || currentNode.classList?.contains('isChecked');
 
           elements.push({
             id: idCounter,
             tag: currentNode.tagName,
             type: currentNode.type || undefined,
+            role: role || undefined,
             text,
             ariaLabel: currentNode.getAttribute('aria-label') || undefined,
             href: currentNode.tagName === 'A' ? currentNode.href : undefined,
+            checked: isChecked || undefined,
+            forId: currentNode.getAttribute('for') || undefined,
             inViewport,
           });
 

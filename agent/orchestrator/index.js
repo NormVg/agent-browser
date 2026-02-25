@@ -78,6 +78,12 @@ export class Orchestrator {
           this.memory.logOutcome(true, `Typed into #${action.elementId}`);
           return 'ok';
 
+        case 'selectOption':
+          if (!action.elementId || !action.value) throw new Error("Missing elementId or value for selectOption");
+          await this.browser.selectOption(String(action.elementId), action.value);
+          this.memory.logOutcome(true, `Selected "${action.value}" in #${action.elementId}`);
+          return 'ok';
+
         case 'pressEnter':
           await this.browser.pressEnter();
           this.memory.logOutcome(true, 'Enter pressed');
@@ -190,9 +196,8 @@ export class Orchestrator {
           const isLast = i === chain.length - 1;
           console.log(chalk.dim(`\n  [${i + 1}/${chain.length}] ${action.action}`));
 
-          // For click/type: refresh observation right before to get live element IDs
-          // Only if the planner didn't just observe (i.e., this is mid-chain)
-          if ((action.action === 'click' || action.action === 'type') && i > 0) {
+          // For click/type/selectOption: refresh observation right before to get live element IDs
+          if (['click', 'type', 'selectOption'].includes(action.action) && i > 0) {
             await this.observe();
           }
 
@@ -207,9 +212,9 @@ export class Orchestrator {
             break; // Break chain, outer loop will re-observe + re-plan
           }
 
-          // Small gap between actions only when there are more actions left
+          // Smooth delay between actions to prevent UI jerking
           if (!isLast) {
-            await this.browser.wait(action.action === 'navigate' ? 0 : 300);
+            await this.browser.wait(500);
           }
         }
 
