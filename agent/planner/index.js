@@ -70,7 +70,8 @@ Replace spaces in QUERY with + (e.g. "seedhe maut" → "seedhe+maut").
 - Start with a navigate step using SMART SHORTCUTS whenever possible.
 - Never repeat an action that just failed — use a different approach.
 - If you need to click/type something that requires seeing the live page, add just those dynamic steps after initial navigation.
-- Only use askUser for CAPTCHA, 2FA, or genuinely unknown info.
+- NEVER type passwords, credentials, or login info yourself. If a page needs login, use askUser: {"action": "askUser", "question": "This page requires login. Please log in manually in the browser, then type 'done' here."} — then continue after the user confirms.
+- Only use askUser for CAPTCHA, 2FA, login, or genuinely unknown info.
 - End with a finish step when the goal is complete.
 
 Output ONLY a valid JSON array, no markdown, no explanation.`;
