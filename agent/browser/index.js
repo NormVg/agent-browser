@@ -71,8 +71,8 @@ export class BrowserRuntime {
   // ------------- PAGE LOCK LAYER -------------
 
   /**
-   * Block user interaction — inset shadow border + badge.
-   * The agent's own actions bypass this because Playwright dispatches events directly.
+   * Visual lock — shows red glow border + badge to signal the agent is in control.
+   * pointer-events: none so Playwright clicks go straight through.
    */
   async lockPage() {
     try {
@@ -82,7 +82,7 @@ export class BrowserRuntime {
         overlay.id = 'agent-lock-overlay';
         overlay.style.cssText = `
           position: fixed; inset: 0; z-index: 2147483647;
-          pointer-events: all;
+          pointer-events: none;
           box-shadow: inset 0 0 60px 20px rgba(255, 50, 50, 0.15), inset 0 0 4px 2px rgba(255, 50, 50, 0.3);
           border: 2px solid rgba(255, 50, 50, 0.25);
         `;
@@ -166,7 +166,7 @@ export class BrowserRuntime {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
       await this.highlight(elementId);
-      await locator.click({ force: true, timeout: 10000 });
+      await locator.click({ timeout: 10000 });
     } catch (e) {
       throw new Error(`Click #${elementId} failed: ${e.message}`);
     }
