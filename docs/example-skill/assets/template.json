@@ -1,0 +1,15 @@
+{
+  "title": "Skill Output Template",
+  "version": "1.0",
+  "format": {
+    "status": "success|error",
+    "data": {
+      "message": "string",
+      "timestamp": "ISO8601"
+    },
+    "metadata": {
+      "skill": "example-skill",
+      "execution_time_ms": 0
+    }
+  }
+}

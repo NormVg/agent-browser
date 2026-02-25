@@ -1,0 +1,296 @@
+{
+  "1767857248480-vdd6akdfl": {
+    "id": "1767857248480-vdd6akdfl",
+    "type": "person",
+    "content": "Vishnu gupta",
+    "meta": {
+      "created_at": "2026-01-08T07:27:28.480Z",
+      "updated_at": "2026-01-08T07:27:28.480Z",
+      "tags": [
+        "name",
+        "user"
+      ]
+    }
+  },
+  "1767857291777-i4ea6wbd8": {
+    "id": "1767857291777-i4ea6wbd8",
+    "type": "person",
+    "content": "Vishnu - Founder and CEO of TheALphaOnes, full-stack software developer",
+    "meta": {
+      "created_at": "2026-01-08T07:28:11.777Z",
+      "updated_at": "2026-01-08T07:28:50.583Z",
+      "tags": [
+        "founder",
+        "ceo",
+        "executive"
+      ]
+    }
+  },
+  "1767857294507-00ydhh4n9": {
+    "id": "1767857294507-00ydhh4n9",
+    "type": "note",
+    "content": "TheAlphaOnes - Company founded by Vishnu (Founder and CEO) and co-founded by Akshat Khare",
+    "meta": {
+      "created_at": "2026-01-08T07:28:14.507Z",
+      "updated_at": "2026-01-08T07:37:31.381Z",
+      "tags": [
+        "company",
+        "startup",
+        "business"
+      ]
+    }
+  },
+  "1767857349549-tpnesk4ve": {
+    "id": "1767857349549-tpnesk4ve",
+    "type": "concept",
+    "content": "Full-stack software development - Ability to work on both frontend and backend of applications",
+    "meta": {
+      "created_at": "2026-01-08T07:29:09.549Z",
+      "updated_at": "2026-01-08T07:29:09.549Z",
+      "tags": [
+        "skill",
+        "software development",
+        "full-stack"
+      ]
+    }
+  },
+  "1767857474778-1oce0crj6": {
+    "id": "1767857474778-1oce0crj6",
+    "type": "person",
+    "content": "Akshat Khare is the Co-Founder of TheAlphaOnes",
+    "meta": {
+      "created_at": "2026-01-08T07:31:14.778Z",
+      "updated_at": "2026-01-08T07:31:14.778Z",
+      "tags": [
+        "founder",
+        "entrepreneur",
+        "TheAlphaOnes"
+      ]
+    }
+  },
+  "1767857476401-vdcds4cdh": {
+    "id": "1767857476401-vdcds4cdh",
+    "type": "note",
+    "content": "TheAlphaOnes - company founded by Akshat Khare",
+    "meta": {
+      "created_at": "2026-01-08T07:31:16.401Z",
+      "updated_at": "2026-01-08T07:31:16.401Z",
+      "tags": [
+        "company",
+        "startup",
+        "TheAlphaOnes"
+      ]
+    }
+  },
+  "1767857569707-1ftce1t36": {
+    "id": "1767857569707-1ftce1t36",
+    "type": "person",
+    "content": "Akhat Khare - mentioned as best friend",
+    "meta": {
+      "created_at": "2026-01-08T07:32:49.707Z",
+      "updated_at": "2026-01-08T07:32:49.707Z",
+      "tags": [
+        "friend",
+        "akhat",
+        "khare"
+      ]
+    }
+  },
+  "1767857572895-1csvistpo": {
+    "id": "1767857572895-1csvistpo",
+    "type": "note",
+    "content": "The user has a best friend named Akhat Khare. They are building a company together.",
+    "meta": {
+      "created_at": "2026-01-08T07:32:52.895Z",
+      "updated_at": "2026-01-08T07:32:52.895Z",
+      "tags": [
+        "friendship",
+        "best-friend",
+        "akhat-khare",
+        "relationship"
+      ]
+    }
+  },
+  "1767857603287-s6qnmfrd2": {
+    "id": "1767857603287-s6qnmfrd2",
+    "type": "note",
+    "content": "Vishnu expressed feeling very happy during conversation",
+    "meta": {
+      "created_at": "2026-01-08T07:33:23.287Z",
+      "updated_at": "2026-01-08T07:33:23.287Z",
+      "tags": [
+        "mood",
+        "emotion",
+        "happy",
+        "vishnu"
+      ]
+    }
+  },
+  "1767857641899-xn2g60ru2": {
+    "id": "1767857641899-xn2g60ru2",
+    "type": "note",
+    "content": "User asked \"what is TheAlphaOnes\" - seeking information about the company",
+    "meta": {
+      "created_at": "2026-01-08T07:34:01.900Z",
+      "updated_at": "2026-01-08T07:34:01.900Z",
+      "tags": [
+        "query",
+        "TheAlphaOnes",
+        "company-info",
+        "user-question"
+      ]
+    }
+  },
+  "1767858527046-epv8t7hgc": {
+    "id": "1767858527046-epv8t7hgc",
+    "type": "note",
+    "content": "User is considering relocating to Delhi for work opportunities",
+    "meta": {
+      "created_at": "2026-01-08T07:48:47.046Z",
+      "updated_at": "2026-01-08T07:48:47.046Z",
+      "tags": [
+        "relocation",
+        "delhi",
+        "work",
+        "moving"
+      ]
+    }
+  },
+  "1767858587356-ypb88zn5r": {
+    "id": "1767858587356-ypb88zn5r",
+    "type": "person",
+    "content": "Person: Vishnu_Mac - Developer who committed to the oopsAI project",
+    "meta": {
+      "created_at": "2026-01-08T07:49:47.356Z",
+      "updated_at": "2026-01-08T07:49:47.356Z",
+      "tags": [
+        "developer",
+        "oopsAI"
+      ]
+    }
+  },
+  "1767858594329-9b78y5jar": {
+    "id": "1767858594329-9b78y5jar",
+    "type": "note",
+    "content": "Project: oopsAI - AI agent system with modular architecture, actively developed by Vishnu_Mac. Features: autonomous memory system with logging, CLI Runner plugin, multi-agent architecture with orchestrator-worker pattern, shadcn visualizer. Commits: 93bdb0e (feat: Implement autonomous memory system with logging and shadcn visualizer - 63 sec ago), 3518421 (feat: add CLI Runner plugin and enhance agent system - 2 hours ago), 426ea86 (feat: implement multi-agent architecture with orchestrator-worker pattern - 12 hours ago), 915a737 (Initial commit: oopsAI modular refactor - 14 hours ago). Status: All changes committed, no pending work.",
+    "meta": {
+      "created_at": "2026-01-08T07:49:54.329Z",
+      "updated_at": "2026-01-08T07:51:54.338Z",
+      "tags": [
+        "project",
+        "oopsAI",
+        "multi-agent",
+        "CLI",
+        "modular"
+      ]
+    }
+  },
+  "1767858602719-xktob6dr5": {
+    "id": "1767858602719-xktob6dr5",
+    "type": "event",
+    "content": "Commit: 3518421 - \"feat: add CLI Runner plugin and enhance agent system\" (2 hours ago)",
+    "meta": {
+      "created_at": "2026-01-08T07:50:02.719Z",
+      "updated_at": "2026-01-08T07:50:02.719Z",
+      "tags": [
+        "commit",
+        "feat",
+        "CLI Runner",
+        "agent system"
+      ]
+    }
+  },
+  "1767858606373-6wennjas7": {
+    "id": "1767858606373-6wennjas7",
+    "type": "event",
+    "content": "Commit: 426ea86 - \"feat: implement multi-agent architecture with orchestrator-worker pattern\" (12 hours ago)",
+    "meta": {
+      "created_at": "2026-01-08T07:50:06.373Z",
+      "updated_at": "2026-01-08T07:50:06.373Z",
+      "tags": [
+        "commit",
+        "feat",
+        "multi-agent",
+        "orchestrator-worker"
+      ]
+    }
+  },
+  "1767858614752-lkctvkyud": {
+    "id": "1767858614752-lkctvkyud",
+    "type": "event",
+    "content": "Commit: 915a737 - \"Initial commit: oopsAI modular refactor\" (14 hours ago)",
+    "meta": {
+      "created_at": "2026-01-08T07:50:14.752Z",
+      "updated_at": "2026-01-08T07:50:14.752Z",
+      "tags": [
+        "commit",
+        "initial",
+        "oopsAI",
+        "modular refactor"
+      ]
+    }
+  },
+  "1767858642289-qy5btni8v": {
+    "id": "1767858642289-qy5btni8v",
+    "type": "note",
+    "content": "Git repository status: Newly initialized with no commits yet - empty repository waiting for first commit",
+    "meta": {
+      "created_at": "2026-01-08T07:50:42.289Z",
+      "updated_at": "2026-01-08T07:50:42.289Z",
+      "tags": [
+        "git",
+        "repository",
+        "empty",
+        "initialized",
+        "status"
+      ]
+    }
+  },
+  "1767858645043-n0mxr4mpp": {
+    "id": "1767858645043-n0mxr4mpp",
+    "type": "note",
+    "content": "Git workflow for first commit: 1) git add . to add files, 2) git commit -m \"Initial commit\" to create first commit, 3) Then view commit history with diffs",
+    "meta": {
+      "created_at": "2026-01-08T07:50:45.043Z",
+      "updated_at": "2026-01-08T07:50:45.043Z",
+      "tags": [
+        "git",
+        "commands",
+        "workflow",
+        "commit",
+        "add"
+      ]
+    }
+  },
+  "1767858647511-3eevqkvzu": {
+    "id": "1767858647511-3eevqkvzu",
+    "type": "concept",
+    "content": "Git commands: git add . (add files), git commit -m \"Initial commit\" (create commit), git log (view history), git show (view diffs)",
+    "meta": {
+      "created_at": "2026-01-08T07:50:47.511Z",
+      "updated_at": "2026-01-08T07:50:47.511Z",
+      "tags": [
+        "git",
+        "cli",
+        "commands",
+        "version-control"
+      ]
+    }
+  },
+  "1767858723718-xe81yjvv5": {
+    "id": "1767858723718-xe81yjvv5",
+    "type": "event",
+    "content": "Commit: 93bdb0e - \"feat: Implement autonomous memory system with logging and shadcn visualizer\" (63 seconds ago)",
+    "meta": {
+      "created_at": "2026-01-08T07:52:03.718Z",
+      "updated_at": "2026-01-08T07:52:03.718Z",
+      "tags": [
+        "commit",
+        "feat",
+        "autonomous memory",
+        "logging",
+        "shadcn visualizer"
+      ]
+    }
+  }
+}

@@ -4,216 +4,188 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Knowledge Graph</title>
-  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <title>Dual-Memory Visualizer</title>
+  <script src="https://unpkg.com/vis-network@9.1.2/standalone/umd/vis-network.min.js"></script>
   <style>
+    :root {
+      --background: 222.2 84% 4.9%;
+      --foreground: 210 40% 98%;
+      --card: 222.2 84% 4.9%;
+      --card-foreground: 210 40% 98%;
+      --primary: 210 40% 98%;
+      --primary-foreground: 222.2 47.4% 11.2%;
+      --secondary: 217.2 32.6% 17.5%;
+      --secondary-foreground: 210 40% 98%;
+      --muted: 217.2 32.6% 17.5%;
+      --muted-foreground: 215 20.2% 65.1%;
+      --accent: 217.2 32.6% 17.5%;
+      --accent-foreground: 210 40% 98%;
+      --border: 217.2 32.6% 17.5%;
+      --ring: 212.7 26.8% 83.9%;
+    }
+
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
 
-    :root {
-      --background: #09090b;
-      --foreground: #fafafa;
-      --card: #18181b;
-      --card-foreground: #fafafa;
-      --border: #27272a;
-      --muted: #3f3f46;
-      --muted-foreground: #a1a1aa;
-      --accent: #3f3f46;
-      --accent-foreground: #fafafa;
-      --primary: #fafafa;
-      --radius: 0.5rem;
-    }
-
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', sans-serif;
-      background: var(--background);
-      color: var(--foreground);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
       height: 100vh;
       overflow: hidden;
     }
 
     .container {
-      display: flex;
-      flex-direction: column;
       height: 100vh;
-      padding: 1.5rem;
-      gap: 1rem;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 0;
     }
 
     .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 1rem 1.5rem;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      background: hsl(var(--card));
+      border-bottom: 1px solid hsl(var(--border));
+      padding: 1rem 2rem;
     }
 
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    h1 {
-      font-size: 1.25rem;
+    .header h1 {
+      font-size: 1.5rem;
       font-weight: 600;
-      letter-spacing: -0.025em;
+      margin-bottom: 0.5rem;
     }
 
     .stats {
       display: flex;
-      gap: 0.75rem;
+      gap: 2rem;
+      font-size: 0.875rem;
+      color: hsl(var(--muted-foreground));
     }
 
     .stat {
-      padding: 0.375rem 0.75rem;
-      background: var(--accent);
-      border: 1px solid var(--border);
-      border-radius: calc(var(--radius) - 2px);
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: var(--muted-foreground);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
-    #graph-container {
-      flex: 1;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
+    .stat-value {
+      font-weight: 600;
+      color: hsl(var(--foreground));
+    }
+
+    .main-content {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      height: 100%;
+      background: hsl(var(--background));
+    }
+
+    .sidebar {
+      background: hsl(var(--card));
+      border-right: 1px solid hsl(var(--border));
+      overflow-y: auto;
+      padding: 1.5rem;
+    }
+
+    .sidebar h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: hsl(var(--foreground));
+    }
+
+    .stm-list {
+      list-style: none;
+    }
+
+    .stm-item {
+      background: hsl(var(--secondary));
+      padding: 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+      border-left: 3px solid hsl(210 90% 60%);
+    }
+
+    .stm-item-time {
+      font-size: 0.75rem;
+      color: hsl(var(--muted-foreground));
+      margin-top: 0.25rem;
+    }
+
+    .graph-container {
+      height: 100%;
       position: relative;
     }
 
     #network {
-      width: 100%;
       height: 100%;
-      background: var(--card);
-    }
-
-    .controls {
-      position: absolute;
-      top: 1rem;
-      right: 1rem;
-      display: flex;
-      gap: 0.5rem;
-      z-index: 10;
-    }
-
-    button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0.5rem 1rem;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: calc(var(--radius) - 2px);
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: var(--foreground);
-      cursor: pointer;
-      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    button:hover {
-      background: var(--accent);
-      border-color: var(--muted);
-    }
-
-    button:active {
-      transform: scale(0.98);
+      width: 100%;
     }
 
     .node-info {
       position: absolute;
-      bottom: 1rem;
-      left: 1rem;
+      bottom: 2rem;
+      right: 2rem;
+      background: hsl(var(--card));
+      border: 1px solid hsl(var(--border));
+      border-radius: 8px;
+      padding: 1.5rem;
+      min-width: 300px;
       max-width: 400px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1rem;
+      box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
       display: none;
-      z-index: 10;
     }
 
-    .node-info.active {
+    .node-info.visible {
       display: block;
     }
 
-    .node-info-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 0.75rem;
-    }
-
-    .node-type {
-      display: inline-flex;
-      padding: 0.25rem 0.5rem;
-      background: var(--accent);
-      border: 1px solid var(--border);
-      border-radius: calc(var(--radius) - 4px);
-      font-size: 0.75rem;
+    .node-info h3 {
+      font-size: 1rem;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted-foreground);
-    }
-
-    .node-id {
-      font-size: 0.75rem;
-      color: var(--muted-foreground);
-      font-family: 'Courier New', monospace;
-    }
-
-    .node-content {
-      font-size: 0.875rem;
-      line-height: 1.5;
-      color: var(--foreground);
       margin-bottom: 0.75rem;
+      color: hsl(var(--foreground));
     }
 
-    .node-meta {
-      border-top: 1px solid var(--border);
-      padding-top: 0.75rem;
-      font-size: 0.75rem;
-      color: var(--muted-foreground);
-      line-height: 1.6;
+    .node-detail {
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
     }
 
-    .tags {
+    .node-detail-label {
+      color: hsl(var(--muted-foreground));
+    }
+
+    .node-detail-value {
+      color: hsl(var(--foreground));
+      margin-left: 0.5rem;
+    }
+
+    .node-tags {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.375rem;
-      margin-top: 0.5rem;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
     }
 
     .tag {
-      padding: 0.125rem 0.5rem;
-      background: var(--accent);
-      border: 1px solid var(--border);
-      border-radius: 9999px;
+      background: hsl(var(--secondary));
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
       font-size: 0.75rem;
-      color: var(--muted-foreground);
+      color: hsl(var(--muted-foreground));
     }
 
-    /* Vis.js overrides for dark theme */
-    .vis-network {
-      outline: none;
-    }
-
-    .vis-tooltip {
-      background: var(--card) !important;
-      border: 1px solid var(--border) !important;
-      color: var(--foreground) !important;
-      border-radius: var(--radius) !important;
-      padding: 0.5rem !important;
-      font-size: 0.875rem !important;
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: hsl(var(--muted-foreground));
+      font-size: 0.875rem;
     }
   </style>
 </head>
@@ -221,198 +193,225 @@
 <body>
   <div class="container">
     <div class="header">
-      <div class="header-left">
-        <h1>🧠 Knowledge Graph</h1>
-        <div class="stats">
-          <div class="stat">
-            <span id="node-count">0 nodes</span>
-          </div>
-          <div class="stat">
-            <span id="edge-count">0 edges</span>
-          </div>
+      <h1>Dual-Memory Visualizer</h1>
+      <div class="stats">
+        <div class="stat">
+          <span>STM:</span>
+          <span class="stat-value" id="stm-count">0</span>
+        </div>
+        <div class="stat">
+          <span>LTM Nodes:</span>
+          <span class="stat-value" id="ltm-nodes-count">0</span>
+        </div>
+        <div class="stat">
+          <span>LTM Edges:</span>
+          <span class="stat-value" id="ltm-edges-count">0</span>
+        </div>
+        <div class="stat">
+          <span>Auto-refresh:</span>
+          <span class="stat-value">5s</span>
         </div>
       </div>
     </div>
 
-    <div id="graph-container">
-      <div class="controls">
-        <button onclick="refreshGraph()">↻ Refresh</button>
-        <button onclick="fitGraph()">⊙ Fit</button>
+    <div class="main-content">
+      <div class="sidebar">
+        <h2>Short-Term Memory</h2>
+        <ul class="stm-list" id="stm-list">
+          <li class="empty-state">No STM entries</li>
+        </ul>
       </div>
-      <div id="network"></div>
-      <div class="node-info" id="node-info">
-        <div class="node-info-header">
-          <span class="node-type" id="info-type"></span>
-          <span class="node-id" id="info-id"></span>
+
+      <div class="graph-container">
+        <div id="network"></div>
+        <div class="node-info" id="node-info">
+          <h3 id="node-info-title">Select a node</h3>
+          <div class="node-details" id="node-details"></div>
         </div>
-        <div class="node-content" id="info-content"></div>
-        <div class="node-meta" id="info-meta"></div>
       </div>
     </div>
   </div>
 
   <script>
     let network;
-    let nodes;
-    let edges;
+    let selectedNode = null;
 
-    // Minimal color scheme for dark theme
-    const typeColors = {
-      note: { bg: '#3b82f6', border: '#60a5fa' },      // Blue
-      person: { bg: '#a855f7', border: '#c084fc' },    // Purple
-      task: { bg: '#06b6d4', border: '#22d3ee' },      // Cyan
-      concept: { bg: '#10b981', border: '#34d399' },   // Green
-      event: { bg: '#f59e0b', border: '#fbbf24' }      // Amber
+    // Initialize network
+    function initNetwork() {
+      const container = document.getElementById('network');
+      const data = {
+        nodes: new vis.DataSet([]),
+        edges: new vis.DataSet([])
+      };
+
+      const options = {
+        nodes: {
+          shape: 'dot',
+          size: 16,
+          font: { size: 12, color: 'hsl(210, 40%, 98%)' },
+          borderWidth: 2,
+          borderWidthSelected: 3,
+        },
+        edges: {
+          width: 2,
+          color: { color: 'hsl(217.2, 32.6%, 30%)', highlight: 'hsl(210, 90%, 60%)' },
+          arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+          smooth: { type: 'continuous' },
+          font: { size: 10, color: 'hsl(215, 20.2%, 65.1%)', align: 'top' }
+        },
+        physics: {
+          stabilization: { iterations: 100 },
+          barnesHut: { gravitationalConstant: -8000, springLength: 150 }
+        },
+        interaction: {
+          hover: true,
+          tooltipDelay: 200
+        }
+      };
+
+      network = new vis.Network(container, data, options);
+
+      network.on('click', (params) => {
+        if (params.nodes.length > 0) {
+          selectedNode = params.nodes[0];
+          showNodeInfo(selectedNode);
+        } else {
+          hideNodeInfo();
+        }
+      });
+    }
+
+    // Color map for node types
+    const nodeColors = {
+      person: { background: 'hsl(210, 90%, 50%)', border: 'hsl(210, 90%, 40%)' },
+      preference: { background: 'hsl(280, 70%, 50%)', border: 'hsl(280, 70%, 40%)' },
+      skill: { background: 'hsl(150, 70%, 45%)', border: 'hsl(150, 70%, 35%)' },
+      project: { background: 'hsl(30, 90%, 55%)', border: 'hsl(30, 90%, 45%)' },
+      concept: { background: 'hsl(50, 90%, 55%)', border: 'hsl(50, 90%, 45%)' },
+      fact: { background: 'hsl(200, 60%, 50%)', border: 'hsl(200, 60%, 40%)' },
+      event: { background: 'hsl(340, 75%, 50%)', border: 'hsl(340, 75%, 40%)' },
     };
 
-    async function loadGraph() {
+    // Fetch and update data
+    async function updateData() {
       try {
-        const response = await fetch('/api/graph');
-        const data = await response.json();
+        // Fetch all data
+        const [stmRes, nodesRes, edgesRes] = await Promise.all([
+          fetch('/api/stm'),
+          fetch('/api/ltm/nodes'),
+          fetch('/api/ltm/edges')
+        ]);
 
-        // Transform nodes for vis.js
-        const visNodes = data.nodes.map(node => {
-          const colors = typeColors[node.type] || { bg: '#71717a', border: '#a1a1aa' };
-          return {
-            id: node.id,
-            label: node.content.length > 30
-              ? node.content.substring(0, 30) + '...'
-              : node.content,
-            title: node.content,
-            color: {
-              background: colors.bg,
-              border: colors.border,
-              highlight: {
-                background: colors.border,
-                border: colors.bg
-              }
-            },
-            font: {
-              color: '#fafafa',
-              size: 12,
-              face: 'Inter, sans-serif',
-              strokeWidth: 0
-            },
-            shape: 'dot',
-            size: 16,
-            data: node
-          };
-        });
+        const stm = await stmRes.json();
+        const nodesData = await nodesRes.json();
+        const edgesData = await edgesRes.json();
 
-        // Transform edges for vis.js
-        const visEdges = data.edges.map(edge => ({
-          from: edge.from,
-          to: edge.to,
-          label: edge.label,
-          arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-          color: {
-            color: '#3f3f46',
-            highlight: '#71717a',
-            opacity: 0.8
-          },
-          font: {
-            size: 11,
-            color: '#a1a1aa',
-            strokeWidth: 0,
-            background: '#18181b'
-          },
-          smooth: { type: 'curvedCW', roundness: 0.15 },
-          width: 1.5
-        }));
+        // Update STM display
+        updateSTM(stm);
+
+        // Update LTM graph
+        updateGraph(nodesData, edgesData);
 
         // Update stats
-        document.getElementById('node-count').textContent = `${visNodes.length} nodes`;
-        document.getElementById('edge-count').textContent = `${visEdges.length} edges`;
+        document.getElementById('stm-count').textContent = stm.length;
+        document.getElementById('ltm-nodes-count').textContent = Object.keys(nodesData).length;
+        document.getElementById('ltm-edges-count').textContent = Object.keys(edgesData).length;
 
-        // Create network
-        const container = document.getElementById('network');
-        nodes = new vis.DataSet(visNodes);
-        edges = new vis.DataSet(visEdges);
-
-        const networkData = { nodes, edges };
-        const options = {
-          physics: {
-            enabled: true,
-            stabilization: { iterations: 150 },
-            barnesHut: {
-              gravitationalConstant: -3000,
-              centralGravity: 0.4,
-              springLength: 120,
-              springConstant: 0.05,
-              damping: 0.3
-            }
-          },
-          interaction: {
-            hover: true,
-            tooltipDelay: 100,
-            hideEdgesOnDrag: true
-          }
-        };
-
-        if (network) {
-          network.setData(networkData);
-        } else {
-          network = new vis.Network(container, networkData, options);
-
-          // Click event to show node details
-          network.on('click', function (params) {
-            if (params.nodes.length > 0) {
-              const nodeId = params.nodes[0];
-              const node = nodes.get(nodeId);
-              showNodeInfo(node.data);
-            } else {
-              hideNodeInfo();
-            }
-          });
-        }
-
-      } catch (error) {
-        console.error('Failed to load graph:', error);
+      } catch (err) {
+        console.error('Error fetching data:', err);
       }
     }
 
-    function showNodeInfo(node) {
-      const infoBox = document.getElementById('node-info');
-      document.getElementById('info-type').textContent = node.type;
-      document.getElementById('info-id').textContent = `#${node.id.substring(0, 12)}...`;
-      document.getElementById('info-content').textContent = node.content;
+    // Update STM list
+    function updateSTM(stm) {
+      const list = document.getElementById('stm-list');
 
-      let metaHtml = `
-                Created: ${new Date(node.meta.created_at).toLocaleDateString()} ${new Date(node.meta.created_at).toLocaleTimeString()}<br>
-                Updated: ${new Date(node.meta.updated_at).toLocaleDateString()} ${new Date(node.meta.updated_at).toLocaleTimeString()}
-            `;
+      if (stm.length === 0) {
+        list.innerHTML = '<li class="empty-state">No STM entries</li>';
+        return;
+      }
+
+      list.innerHTML = stm.map(entry => `
+        <li class="stm-item">
+          <div>${entry.content}</div>
+          <div class="stm-item-time">${new Date(entry.timestamp).toLocaleString()}</div>
+        </li>
+      `).join('');
+    }
+
+    // Update graph
+    function updateGraph(nodesData, edgesData) {
+      const nodes = Object.values(nodesData).map(node => {
+        const color = nodeColors[node.type] || nodeColors.fact;
+        const label = node.content.length > 40
+          ? node.content.substring(0, 40) + '...'
+          : node.content;
+
+        return {
+          id: node.id,
+          label,
+          title: node.content,
+          color,
+          nodeData: node
+        };
+      });
+
+      const edges = Object.values(edgesData).map(edge => ({
+        id: edge.id,
+        from: edge.from,
+        to: edge.to,
+        label: edge.label,
+        title: edge.label
+      }));
+
+      network.setData({ nodes, edges });
+    }
+
+    // Show node info
+    function showNodeInfo(nodeId) {
+      const nodeData = network.body.data.nodes.get(nodeId);
+      if (!nodeData || !nodeData.nodeData) return;
+
+      const node = nodeData.nodeData;
+      const infoPanel = document.getElementById('node-info');
+      const title = document.getElementById('node-info-title');
+      const details = document.getElementById('node-details');
+
+      title.textContent = node.content;
+
+      let html = `
+        <div class="node-detail">
+          <span class="node-detail-label">Type:</span>
+          <span class="node-detail-value">${node.type}</span>
+        </div>
+        <div class="node-detail">
+          <span class="node-detail-label">Created:</span>
+          <span class="node-detail-value">${new Date(node.meta.created_at).toLocaleDateString()}</span>
+        </div>
+      `;
 
       if (node.meta.tags && node.meta.tags.length > 0) {
-        metaHtml += '<div class="tags">';
-        node.meta.tags.forEach(tag => {
-          metaHtml += `<span class="tag">${tag}</span>`;
-        });
-        metaHtml += '</div>';
+        html += `
+          <div class="node-tags">
+            ${node.meta.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}
+          </div>
+        `;
       }
 
-      document.getElementById('info-meta').innerHTML = metaHtml;
-      infoBox.classList.add('active');
+      details.innerHTML = html;
+      infoPanel.classList.add('visible');
     }
 
+    // Hide node info
     function hideNodeInfo() {
-      document.getElementById('node-info').classList.remove('active');
+      document.getElementById('node-info').classList.remove('visible');
+      selectedNode = null;
     }
 
-    function refreshGraph() {
-      loadGraph();
-    }
-
-    function fitGraph() {
-      if (network) {
-        network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
-      }
-    }
-
-    // Load graph on startup
-    loadGraph();
-
-    // Auto-refresh every 5 seconds
-    setInterval(refreshGraph, 5000);
+    // Initialize
+    initNetwork();
+    updateData();
+    setInterval(updateData, 5000); // Refresh every 5 seconds
   </script>
 </body>
 

@@ -10,8 +10,7 @@ import { createInterface } from 'readline';
 import config from './config.js';
 import { tools } from './tools/index.js';
 import { checkApiKey, getModel } from './lib/ai.js';
-import { registry } from './lib/plugins/registry.js';
-import { logger } from './lib/logger.js';
+
 import {
   colors,
   showWelcomeBanner,
@@ -24,9 +23,7 @@ import {
 
 // Initialize
 checkApiKey();
-await registry.loadPlugins(); // Load available skills
-await logger.init(); // Initialize logging
-await logger.logSystem('Chat session started');
+
 showWelcomeBanner();
 
 // Debug: Log available tools
@@ -48,21 +45,17 @@ const chat = () => {
 
   rl.on('line', async (input) => {
     const userMessage = input.trim();
-    const userInput = input.trim();
 
-    if (!userInput) {
+    if (!userMessage) {
       rl.prompt();
       return;
     }
 
     // Add user message to history
-    messages.push({ role: 'user', content: userInput });
-
-    // Log user message
-    await logger.logUser(userInput);
+    messages.push({ role: 'user', content: userMessage });
 
     // Display user message box
-    displayUserBox(userInput);
+    displayUserBox(userMessage);
     console.log(); // Spacing after box
 
     // Start spinner
@@ -76,24 +69,15 @@ const chat = () => {
     rl.pause();
 
     try {
-      // Inject available skills into system prompt
-      const availableSkills = registry.listPlugins()
-        .map(p => `- ${p.name} (ID: ${p.id}): ${p.description}`)
-        .join('\n');
 
-      const skillSystemPrompt = `
-### AVAILABLE SKILLS
-The following skills are available. If the user's request matches a skill, use the \`activateSkill\` tool to load its instructions.
-${availableSkills}
-`;
 
       // Stream response from AI
       const streamConfig = {
         model: getModel(),
         messages,
         temperature: config.model.temperature,
-        system: config.systemPrompt + skillSystemPrompt,
-        maxSteps: 5, // Allow multiple steps for Activate -> Run -> Answer
+        system: config.systemPrompt,
+        maxSteps: 5,
       };
 
       // Add tools if enabled
@@ -131,18 +115,12 @@ ${availableSkills}
           const args = part.args ?? part.input;
           displayToolCall(part.toolName, args);
           toolCalls.push({ name: part.toolName, args });
-
-          // Log tool call
-          await logger.logToolCall(part.toolName, args);
         }
         // Handle tool results
         else if (part.type === 'tool-result') {
           const resultData = part.result || part.output;
           displayToolResult(resultData);
           toolResults.push({ name: part.toolName, result: resultData });
-
-          // Log tool result
-          await logger.logToolResult(part.toolName, resultData);
         }
       }
 
@@ -212,165 +190,15 @@ ${availableSkills}
           fullResponse = fallbackFullResponse;
         }
       } else {
-        // Auto-Execution Logic: If skill activated but script NOT run
-        const activatedSkill = toolCalls.find(t => t.name === 'activateSkill');
-        const ranScript = toolCalls.find(t => t.name === 'runSkillScript');
-
-        if (activatedSkill && !ranScript) {
-          console.log(colors.dim('  (Auto-executing skill script...)'));
-
-          // Add the "lazy" response to history so the model knows what it just said (optional, maybe skip to keep context clean?)
-          // Actually, let's skip adding the question to history and just force the action.
-          // But we need to keep the tool result in history.
-          // The `messages` array is updated by the SDK? No, I have to update it.
-
-          // Wait, `streamText` updates `messages`? No, I pass `messages` in.
-          // The `messages` array I pass to `streamText` is NOT mutated by it.
-          // I need to manually add the assistant's turn (tool calls + text) to `messages` before the next call.
-
-          // Construct the assistant message that JUST happened
-          const assistantMessage = {
-            role: 'assistant',
-            content: fullResponse,
-            toolCalls: toolCalls.map(tc => ({
-              type: 'function',
-              function: { name: tc.name, arguments: JSON.stringify(tc.args) },
-              id: 'call_' + Math.random().toString(36).substr(2, 9) // Mock ID
-            }))
-          };
-
-          // We also need to add the tool results!
-          // The SDK handles tool execution and re-calls the model if maxSteps > 1.
-          // If we are here, it means the SDK *finished*.
-          // So the history *should* effectively contain the tool results if we were using the SDK's `appendResponseMessages`.
-          // But here I am managing `messages` manually.
-
-          // Let's reconstruct the conversation state for the follow-up.
-          const followUpMessages = [...messages];
-          followUpMessages.push(assistantMessage);
-
-          // Add tool results to history
-          toolResults.forEach(tr => {
-            followUpMessages.push({
-              role: 'tool',
-              toolCallId: assistantMessage.toolCalls.find(tc => tc.function.name === tr.name).id,
-              content: JSON.stringify(tr.result)
-            });
-          });
-
-          // Prompt to force execution
-          const forceRunPrompt = "You have activated the skill. Now, immediately run the script defined in the instructions (e.g., 'sysinfo.js', 'greet.js', etc.) with appropriate arguments (use 'all' or defaults if unsure). Do not ask for clarification.";
-          followUpMessages.push({ role: 'user', content: forceRunPrompt });
-
-          try {
-            const autoRunConfig = {
-              model: getModel(),
-              messages: followUpMessages,
-              temperature: config.model.temperature,
-              system: config.systemPrompt,
-              tools: tools, // Give access to tools again!
-              maxSteps: 5,
-            };
-
-            const autoRunResult = streamText(autoRunConfig);
-            let autoRunFullResponse = '';
-
-            process.stdout.write(colors.assistant('  ')); // Indent
-
-            for await (const part of autoRunResult.fullStream) {
-              if (part.type === 'text-delta') {
-                const delta = typeof part.textDelta === 'string' ? part.textDelta : '';
-                if (delta) {
-                  process.stdout.write(chalk.green(delta));
-                  autoRunFullResponse += delta;
-                }
-              } else if (part.type === 'tool-call') {
-                console.log('\n');
-                const args = part.args ?? part.input;
-                displayToolCall(part.toolName, args);
-                // We don't push to `toolCalls` here because we are in a sub-loop,
-                // but we should probably track it if we want to recurse?
-                // For now, let's assume one level of auto-fix is enough.
-              } else if (part.type === 'tool-result') {
-                const resultData = part.result || part.output;
-                displayToolResult(resultData);
-              }
-            }
-            console.log('\n');
-
-            // Clean up response
-            if (autoRunFullResponse) {
-              autoRunFullResponse = autoRunFullResponse.replace(/\{"[^"]+":\s*"[^"]+"(?:\s*,\s*"[^"]+":\s*"[^"]+")*\}/g, '').replace(/\{\s*\}/g, '').trim();
-            }
-
-            displayAssistantBox(autoRunFullResponse);
-            if (autoRunFullResponse) {
-              messages.push({ role: 'assistant', content: autoRunFullResponse });
-            }
-            return; // Done
-          } catch (err) {
-            console.log(colors.error('Auto-execution failed: ' + err.message));
-          }
+        // Standard response display
+        displayAssistantBox(fullResponse);
+        if (fullResponse) {
+          messages.push({ role: 'assistant', content: fullResponse });
         }
 
-        // Standard response display (if no auto-execution needed)
-        if (!activatedSkill || ranScript) {
-          displayAssistantBox(fullResponse);
-          if (fullResponse) {
-            messages.push({ role: 'assistant', content: fullResponse });
-          }
-        }
-      } // End of main else block
-
-      // 🔥 ALWAYS LOG: Assistant response (moved outside conditionals)
-      if (fullResponse) {
-        await logger.logAssistant(fullResponse);
       }
-
-      // 🧠 MEMORY AGENT: Automatic intelligent memory management (moved outside conditionals)
-      try {
-        console.log(chalk.dim('\n[DEBUG] Importing Memory Agent...'));
-        const { runMemoryAgent } = await import('./agents/memory-agent/agent.js');
-
-        console.log(chalk.dim('[DEBUG] Memory Agent imported, preparing context...'));
-
-        // Construct context for memory agent
-        const conversationContext = `
-USER: ${userInput}
-ASSISTANT: ${fullResponse}
-
-Analyze this conversation turn and:
-1. Extract any important facts, entities, or preferences
-2. Create or update relevant memory nodes
-3. Link related information together
-4. Avoid duplicates (search before creating)
-5. Keep memory organized and structured
-
-Focus on: names, preferences, projects, companies, skills, tools, dates, relationships.
-`;
-
-        console.log(chalk.dim('[DEBUG] Calling Memory Agent...'));
-
-        // Run memory agent in background (silently)
-        runMemoryAgent(conversationContext, true).then(() => {
-          console.log(chalk.green('[DEBUG] Memory Agent completed successfully'));
-        }).catch(err => {
-          console.error(chalk.red('[DEBUG] Memory Agent error:'), err.message);
-          console.error(err.stack);
-        });
-
-      } catch (err) {
-        // Silent fail - don't interrupt conversation
-        console.error('Memory Agent initialization error:', err.message);
-        console.error(err.stack);
-      }
-
-
     } catch (error) {
       spinner.stop();
-
-      // Log error
-      await logger.logError(error, 'Main conversation loop');
 
       // Handle "empty output" error by attempting a Force Reply
       if (error.message && (error.message.includes('model output must contain either output text or tool calls') || error.message.includes('empty response'))) {

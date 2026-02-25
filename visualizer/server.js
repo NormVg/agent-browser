@@ -1,64 +1,70 @@
-import http from 'http';
+import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { memoryGraph } from '../lib/memory/graph.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
 const PORT = 3000;
 
-const server = http.createServer(async (req, res) => {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+// Paths to dual-memory files
+const STM_FILE = path.join(__dirname, '../data/memory/stm.json');
+const LTM_NODES_FILE = path.join(__dirname, '../data/memory/ltm-nodes.json');
+const LTM_EDGES_FILE = path.join(__dirname, '../data/memory/ltm-edges.json');
 
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200);
-    res.end();
-    return;
-  }
+// Serve static files
+app.use(express.static(__dirname));
 
-  // API endpoint to get graph data
-  if (req.url === '/api/graph') {
-    try {
-      await memoryGraph.ensureLoaded();
-      const nodes = await memoryGraph.getAllNodes();
-      const edges = Array.from(memoryGraph.edges.values());
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ nodes, edges }));
-    } catch (error) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message }));
+// API endpoint for STM
+app.get('/api/stm', async (req, res) => {
+  try {
+    const data = await fs.readFile(STM_FILE, 'utf-8');
+    const stm = JSON.parse(data);
+    res.json(stm);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.json([]);
+    } else {
+      res.status(500).json({ error: err.message });
     }
-    return;
   }
-
-  // Serve the HTML file
-  if (req.url === '/' || req.url === '/index.html') {
-    try {
-      const htmlPath = path.join(__dirname, 'index.html');
-      const html = await fs.readFile(htmlPath, 'utf-8');
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(html);
-    } catch (error) {
-      res.writeHead(404);
-      res.end('Not found');
-    }
-    return;
-  }
-
-  // 404 for everything else
-  res.writeHead(404);
-  res.end('Not found');
 });
 
-server.listen(PORT, () => {
-  console.log(`\n🧠 Knowledge Graph Visualizer`);
+// API endpoint for LTM nodes
+app.get('/api/ltm/nodes', async (req, res) => {
+  try {
+    const data = await fs.readFile(LTM_NODES_FILE, 'utf-8');
+    const nodes = JSON.parse(data);
+    res.json(nodes);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.json({});
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// API endpoint for LTM edges
+app.get('/api/ltm/edges', async (req, res) => {
+  try {
+    const data = await fs.readFile(LTM_EDGES_FILE, 'utf-8');
+    const edges = JSON.parse(data);
+    res.json(edges);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.json({});
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`\n🧠 Dual-Memory Visualizer`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`\n📊 Server running at: http://localhost:${PORT}`);
-  console.log(`\n💡 Open your browser to visualize the graph!`);
+  console.log(`\n💡 Open your browser to visualize STM + LTM!`);
   console.log(`\n🔄 Updates every 5 seconds automatically`);
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 });

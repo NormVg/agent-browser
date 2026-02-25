@@ -1,0 +1,24 @@
+{
+    "name": "agent-cli",
+    "author": "thenormvg",
+    "stir": true,
+    "cmd": {
+        "serve": [
+            "node  chat.js"
+        ],
+        "build": [
+            "echo"
+        ],
+        "clean": [
+            "echo"
+        ]
+    },
+    "template": {
+        "name": "",
+        "category": "",
+        "date": "",
+        "author": "",
+        "stack": [],
+        "github": ""
+    }
+}
