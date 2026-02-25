@@ -2,21 +2,27 @@ import { Planner, STATIC_ACTIONS } from '../planner/index.js';
 import { BrowserRuntime } from '../browser/index.js';
 import { Memory } from '../memory/index.js';
 import chalk from 'chalk';
-import readline from 'readline';
 
 export class Orchestrator {
-  constructor() {
+  /**
+   * @param {Object} opts
+   * @param {Function} opts.askUserFn - callback(question) => Promise<string>
+   *   Injected from chat.js to reuse the existing readline — avoids stdin conflicts.
+   */
+  constructor(opts = {}) {
     this.planner = new Planner();
     this.browser = new BrowserRuntime();
     this.memory = new Memory();
+    this.askUserFn = opts.askUserFn || null;
   }
 
   async promptUser(question) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    console.log(chalk.yellow(`\n[Agent Question] ${question}`));
-    return new Promise((resolve) => {
-      rl.question(chalk.cyan('You ❯ '), (answer) => { rl.close(); resolve(answer); });
-    });
+    if (this.askUserFn) {
+      return this.askUserFn(question);
+    }
+    // No callback — can't ask the user, return a fallback
+    console.log(chalk.yellow(`[Agent] Wanted to ask: "${question}" — skipping (no stdin access)`));
+    return '(no answer available)';
   }
 
   buildPartialReport(goal, reason) {

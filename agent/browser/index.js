@@ -1,44 +1,70 @@
 import { chromium } from 'playwright';
+import os from 'os';
+import path from 'path';
+
+// Real Chrome profile — has all your cookies, logins, history
+const CHROME_PROFILE = path.join(
+  os.homedir(),
+  'Library/Application Support/Google/Chrome/Default'
+);
 
 export class BrowserRuntime {
   constructor() {
+    this.browser = null;   // Only used in fallback (non-persistent) mode
+    this.context = null;
+    this.page = null;
+    this.persistent = false;
+  }
+
+  /**
+   * Init browser using the user's real Chrome profile.
+   * Falls back to a fresh sandboxed context if the profile is locked
+   * (e.g. Chrome is already running).
+   */
+  async init(headless = true) {
+    if (this.context) return; // Already initialized
+
+    const launchArgs = ['--no-sandbox', '--disable-blink-features=AutomationControlled'];
+
+    try {
+      // Try persistent context with real Chrome profile
+      this.context = await chromium.launchPersistentContext(CHROME_PROFILE, {
+        headless,
+        channel: 'chrome',
+        args: launchArgs,
+        viewport: { width: 1280, height: 800 },
+      });
+      this.persistent = true;
+      console.log('[Browser] Using real Chrome profile ✓');
+    } catch (e) {
+      // Profile locked (Chrome already open) — fall back to fresh context
+      console.warn('[Browser] Chrome profile locked, using fresh session:', e.message);
+      this.browser = await chromium.launch({
+        headless,
+        channel: 'chrome',
+        args: launchArgs,
+      });
+      this.context = await this.browser.newContext({
+        viewport: { width: 1280, height: 800 },
+      });
+      this.persistent = false;
+    }
+
+    this.page = this.context.pages()[0] || await this.context.newPage();
+    this.page.setDefaultTimeout(30000);
+  }
+
+  async close() {
+    try {
+      if (this.persistent && this.context) {
+        await this.context.close();
+      } else if (this.browser) {
+        await this.browser.close();
+      }
+    } catch (_) { }
     this.browser = null;
     this.context = null;
     this.page = null;
-  }
-
-  /**
-   * Initialize the browser and create a new page context.
-   * @param {boolean} headless - If true, runs without a visible window.
-   */
-  async init(headless = true) {
-    if (!this.browser) {
-      this.browser = await chromium.launch({
-        headless,                    // ✅ Respect the parameter
-        channel: 'chrome',           // Use system-installed Chrome
-        args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-      });
-
-      this.context = await this.browser.newContext({
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        viewport: { width: 1280, height: 800 },
-      });
-
-      this.page = await this.context.newPage();
-      this.page.setDefaultTimeout(30000); // ✅ 30s — enough for heavy pages
-    }
-  }
-
-  /**
-   * Close the browser entirely.
-   */
-  async close() {
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-      this.context = null;
-      this.page = null;
-    }
   }
 
   // ------------- ACTION LAYER -------------

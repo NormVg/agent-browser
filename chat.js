@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createInterface } from 'readline';
 import config from './config.js';
-import { tools } from './tools/index.js';
+import { createTools } from './tools/index.js';
 import { checkApiKey, getModel } from './lib/ai.js';
 
 import {
@@ -26,9 +26,6 @@ checkApiKey();
 
 showWelcomeBanner();
 
-// Debug: Log available tools
-console.log(colors.dim('Available tools:'), Object.keys(tools).join(', '));
-
 // Message history
 const messages = [];
 
@@ -38,6 +35,12 @@ const rl = createInterface({
   output: process.stdout,
   prompt: colors.user.bold('You ❯ '),
 });
+
+// Build tools with access to readline (so browser agent can askUser)
+const tools = createTools(rl);
+
+// Debug: Log available tools
+console.log(colors.dim('Available tools:'), Object.keys(tools).join(', '));
 
 // Start chat loop
 const chat = () => {
