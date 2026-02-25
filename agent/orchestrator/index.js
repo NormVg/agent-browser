@@ -129,13 +129,16 @@ export class Orchestrator {
           return 'replan';
 
         case 'askUser': {
+          await this.browser.unlockPage(); // Let user interact
           const ans = await this.promptUser(action.question);
+          await this.browser.lockPage();   // Re-lock after user is done
           this.memory.logAction({ action: 'userResponse', response: ans });
           this.memory.logOutcome(true, 'Got user answer');
           return 'replan';
         }
 
         case 'finish':
+          await this.browser.unlockPage();
           console.log(chalk.green.bold(`\n🎉 Goal completed: ${action.result}\n`));
           return 'finish';
 
@@ -209,6 +212,9 @@ export class Orchestrator {
         console.log(chalk.cyan(`[Chain] ${chain.length} action(s):`));
         chain.forEach((s, i) => console.log(chalk.dim(`        ${i + 1}. ${s.action}${s.url ? ' → ' + s.url : s.elementId ? ' #' + s.elementId : s.result ? ' → "' + s.result.substring(0, 60) + '"' : ''}`)));
 
+        // ── LOCK page from user interaction ──
+        await this.browser.lockPage();
+
         // ── EXECUTE CHAIN ──
         let shouldReplan = false;
         for (let i = 0; i < chain.length; i++) {
@@ -250,6 +256,7 @@ export class Orchestrator {
       console.error(chalk.red(`\n❌ Runtime error: ${error.message}\n`));
       return this.buildPartialReport(goal, `Runtime error: ${error.message}`);
     } finally {
+      await this.browser.unlockPage();
       await this.browser.close();
     }
   }

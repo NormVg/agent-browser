@@ -68,6 +68,53 @@ export class BrowserRuntime {
     this.page = null;
   }
 
+  // ------------- PAGE LOCK LAYER -------------
+
+  /**
+   * Block user interaction — inset shadow border + badge.
+   * The agent's own actions bypass this because Playwright dispatches events directly.
+   */
+  async lockPage() {
+    try {
+      await this.page.evaluate(() => {
+        if (document.getElementById('agent-lock-overlay')) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'agent-lock-overlay';
+        overlay.style.cssText = `
+          position: fixed; inset: 0; z-index: 2147483647;
+          pointer-events: all;
+          box-shadow: inset 0 0 60px 20px rgba(255, 50, 50, 0.15), inset 0 0 4px 2px rgba(255, 50, 50, 0.3);
+          border: 2px solid rgba(255, 50, 50, 0.25);
+        `;
+        // Badge
+        const badge = document.createElement('div');
+        badge.style.cssText = `
+          position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2147483647;
+          background: rgba(0,0,0,0.8); color: #ff5555; padding: 6px 18px;
+          border-radius: 20px; font: 600 12px/1 -apple-system, sans-serif;
+          letter-spacing: 0.5px; border: 1px solid rgba(255,50,50,0.3);
+          box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+        `;
+        badge.textContent = '🤖 AI Agent Working...';
+        badge.id = 'agent-lock-badge';
+        overlay.appendChild(badge);
+        document.body.appendChild(overlay);
+      });
+    } catch (_) { }
+  }
+
+  /**
+   * Re-enable user interaction.
+   */
+  async unlockPage() {
+    try {
+      await this.page.evaluate(() => {
+        document.getElementById('agent-lock-overlay')?.remove();
+        document.getElementById('agent-lock-badge')?.remove();
+      });
+    } catch (_) { }
+  }
+
   // ------------- ACTION LAYER -------------
 
   async navigate(url) {
