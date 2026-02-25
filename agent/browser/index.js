@@ -2,69 +2,105 @@ import { chromium } from 'playwright';
 import os from 'os';
 import path from 'path';
 
-// Real Chrome profile — has all your cookies, logins, history
+// User Data Directory — Playwright automatically looks for the 'Default' profile inside this folder.
 const CHROME_PROFILE = path.join(
   os.homedir(),
-  'Library/Application Support/Google/Chrome/Default'
+  'Library/Application Support/Google/Chrome'
 );
 
 export class BrowserRuntime {
   constructor() {
-    this.browser = null;   // Only used in fallback (non-persistent) mode
+    this.browser = null;   // CDP or owned launch
     this.context = null;
     this.page = null;
-    this.persistent = false;
+    this.mode = null;   // 'cdp' | 'owned' | 'sandbox'
+    this.agentPage = null;   // the tab we opened — we only close this
   }
 
   /**
-   * Init browser using the user's real Chrome profile.
-   * Falls back to a fresh sandboxed context if the profile is locked
-   * (e.g. Chrome is already running).
+   * Safe browser init strategy (in order of preference):
+   *
+   * 1. CDP   — connect to Chrome already running with --remote-debugging-port=9222
+   *            We only close our own page. Chrome and all sessions untouched.
+   * 2. Owned — launch Chrome fresh from the real profile.
+   *            We only close our page; Chrome keeps running with profile intact.
+   * 3. Sandbox — fresh profile. No logins but harmless.
+   *
+   * ⚠️  We NEVER call context.close() on the real profile — that corrupts it.
    */
   async init(headless = true) {
-    if (this.context) return; // Already initialized
+    if (this.page) return;
 
-    const launchArgs = ['--no-sandbox', '--disable-blink-features=AutomationControlled'];
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--remote-debugging-port=9222',       // opens debug port so next run can connect via CDP
+    ];
 
+    // ── 1. Try CDP first ──────────────────────────────────────────
     try {
-      // Try persistent context with real Chrome profile
-      this.context = await chromium.launchPersistentContext(CHROME_PROFILE, {
-        headless,
-        channel: 'chrome',
-        args: launchArgs,
-        viewport: { width: 1280, height: 800 },
-      });
-      this.persistent = true;
-      console.log('[Browser] Using real Chrome profile ✓');
-    } catch (e) {
-      // Profile locked (Chrome already open) — fall back to fresh context
-      console.warn('[Browser] Chrome profile locked, using fresh session:', e.message);
-      this.browser = await chromium.launch({
-        headless,
-        channel: 'chrome',
-        args: launchArgs,
-      });
-      this.context = await this.browser.newContext({
-        viewport: { width: 1280, height: 800 },
-      });
-      this.persistent = false;
+      this.browser = await chromium.connectOverCDP('http://localhost:9222');
+      this.context = this.browser.contexts()[0];
+      this.agentPage = await this.context.newPage();
+      this.page = this.agentPage;
+      this.mode = 'cdp';
+      console.log('[Browser] Connected to running Chrome via CDP ✓ (all your accounts available)');
+      return;
+    } catch (_) {
+      // Chrome not running with CDP — try launching it ourselves
     }
 
-    this.page = this.context.pages()[0] || await this.context.newPage();
-    this.page.setDefaultTimeout(30000);
+    // ── 2. Launch our own Chrome from real profile ────────────────
+    try {
+      this.browser = await chromium.launchPersistentContext(CHROME_PROFILE, {
+        headless,
+        channel: 'chrome',
+        args: launchArgs,
+        viewport: { width: 1280, height: 800 },
+      });
+      this.context = this.browser;           // launchPersistentContext IS the context
+      this.agentPage = await this.context.newPage();
+      this.page = this.agentPage;
+      this.mode = 'owned';
+      console.log('[Browser] Launched Chrome with your real profile ✓');
+      return;
+    } catch (e) {
+      if (!e.message.includes('lock') && !e.message.includes('LOCK')) throw e;
+      // Profile locked by another Chrome — must use sandbox
+      console.warn('[Browser] Profile locked. Close Chrome first for account access. Using sandbox fallback.');
+    }
+
+    // ── 3. Sandboxed fallback ─────────────────────────────────────
+    const fresh = await chromium.launch({ headless, channel: 'chrome', args: ['--no-sandbox'] });
+    this.browser = fresh;
+    this.context = await fresh.newContext({ viewport: { width: 1280, height: 800 } });
+    this.agentPage = await this.context.newPage();
+    this.page = this.agentPage;
+    this.mode = 'sandbox';
+    console.log('[Browser] Running in sandboxed mode (no logins). Start Chrome with --remote-debugging-port=9222 to use your accounts.');
   }
 
+  /**
+   * Only close the page we opened.
+   * NEVER close the browser or context when using real profile — that would corrupt it.
+   */
   async close() {
     try {
-      if (this.persistent && this.context) {
-        await this.context.close();
-      } else if (this.browser) {
-        await this.browser.close();
+      if (this.mode === 'sandbox') {
+        // Sandbox — we own the whole browser, safe to kill
+        await this.browser?.close();
+      } else {
+        // Real profile (cdp or owned) — only close the tab we opened
+        await this.agentPage?.close();
+        // If we own the launch, disconnect gracefully (doesn't kill Chrome)
+        if (this.mode === 'owned') await this.browser?.close();
       }
     } catch (_) { }
     this.browser = null;
     this.context = null;
     this.page = null;
+    this.agentPage = null;
+    this.mode = null;
   }
 
   // ------------- ACTION LAYER -------------
