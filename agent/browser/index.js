@@ -166,7 +166,7 @@ export class BrowserRuntime {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
       await this.highlight(elementId);
-      await locator.click({ timeout: 10000 });
+      await locator.click({ force: true, timeout: 10000 });
     } catch (e) {
       throw new Error(`Click #${elementId} failed: ${e.message}`);
     }
