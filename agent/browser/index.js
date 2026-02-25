@@ -72,7 +72,8 @@ export class BrowserRuntime {
 
   /**
    * Visual lock — shows red glow border + badge to signal the agent is in control.
-   * pointer-events: none so Playwright clicks go straight through.
+   * Visual lock — red glow border + badge, blocks user clicks.
+   * Agent actions temporarily disable the overlay via withOverlayOff().
    */
   async lockPage() {
     try {
@@ -82,7 +83,7 @@ export class BrowserRuntime {
         overlay.id = 'agent-lock-overlay';
         overlay.style.cssText = `
           position: fixed; inset: 0; z-index: 2147483647;
-          pointer-events: none;
+          pointer-events: all;
           box-shadow: inset 0 0 60px 20px rgba(255, 50, 50, 0.15), inset 0 0 4px 2px rgba(255, 50, 50, 0.3);
           border: 2px solid rgba(255, 50, 50, 0.25);
         `;
@@ -94,6 +95,7 @@ export class BrowserRuntime {
           border-radius: 20px; font: 600 12px/1 -apple-system, sans-serif;
           letter-spacing: 0.5px; border: 1px solid rgba(255,50,50,0.3);
           box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+          pointer-events: none;
         `;
         badge.textContent = '🤖 AI Agent Working...';
         badge.id = 'agent-lock-badge';
@@ -115,6 +117,29 @@ export class BrowserRuntime {
     } catch (_) { }
   }
 
+  /**
+   * Temporarily drop overlay for a Playwright action, then restore it.
+   */
+  async withOverlayOff(fn) {
+    try {
+      await this.page.evaluate(() => {
+        const o = document.getElementById('agent-lock-overlay');
+        if (o) o.style.pointerEvents = 'none';
+      });
+    } catch (_) { }
+
+    const result = await fn();
+
+    try {
+      await this.page.evaluate(() => {
+        const o = document.getElementById('agent-lock-overlay');
+        if (o) o.style.pointerEvents = 'all';
+      });
+    } catch (_) { }
+
+    return result;
+  }
+
   // ------------- ACTION LAYER -------------
 
   async navigate(url) {
@@ -134,7 +159,6 @@ export class BrowserRuntime {
       await this.page.evaluate((id) => {
         const el = document.querySelector(`[data-agent-id="${id}"]`);
         if (!el) return;
-        // Inject keyframes once
         if (!document.getElementById('agent-highlight-style')) {
           const style = document.createElement('style');
           style.id = 'agent-highlight-style';
@@ -157,7 +181,7 @@ export class BrowserRuntime {
           el.style.animation = '';
         }, 1500);
       }, elementId);
-      await this.page.waitForTimeout(400); // Let the user see it
+      await this.page.waitForTimeout(400);
     } catch (_) { }
   }
 
@@ -166,7 +190,7 @@ export class BrowserRuntime {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
       await this.highlight(elementId);
-      await locator.click({ timeout: 10000 });
+      await this.withOverlayOff(() => locator.click({ timeout: 10000 }));
     } catch (e) {
       throw new Error(`Click #${elementId} failed: ${e.message}`);
     }
@@ -177,7 +201,7 @@ export class BrowserRuntime {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await locator.scrollIntoViewIfNeeded();
       await this.highlight(elementId);
-      await locator.fill(text);
+      await this.withOverlayOff(() => locator.fill(text));
     } catch (e) {
       throw new Error(`Type into #${elementId} failed: ${e.message}`);
     }
@@ -192,7 +216,7 @@ export class BrowserRuntime {
     try {
       const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
       await this.highlight(elementId);
-      await locator.selectOption(value);
+      await this.withOverlayOff(() => locator.selectOption(value));
     } catch (e) {
       throw new Error(`Select option on #${elementId} failed: ${e.message}`);
     }
