@@ -1,105 +1,71 @@
 import { chromium } from 'playwright';
-import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
-// User Data Directory (Playwright automatically uses the 'Default' profile inside)
-const CHROME_PROFILE = path.join(os.homedir(), 'Library/Application Support/Google/Chrome');
-
-// Args to suppress Chrome startup dialogs that block Playwright
-const SHARED_ARGS = [
-  '--no-sandbox',
-  '--disable-blink-features=AutomationControlled',
-  '--no-first-run',
-  '--no-default-browser-check',
-  '--disable-session-crashed-bubble',
-  '--disable-infobars',
-  '--disable-features=TranslateUI',
-];
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const AUTH_FILE = path.join(__dirname, '..', '..', 'auth.json');
 
 export class BrowserRuntime {
   constructor() {
-    this.browser = null;  // Browser object (sandbox/cdp) or null (owned)
-    this.context = null;  // BrowserContext
-    this.page = null;  // Active page
-    this.mode = null;  // 'cdp' | 'owned' | 'sandbox'
-    this.agentPage = null;  // The tab WE opened — the only thing we close
+    this.browser = null;
+    this.context = null;
+    this.page = null;
   }
 
   /**
-   * Init strategy (in priority order):
-   * 1. CDP    — Chrome already running on :9222 (safest, instant, all accounts)
-   * 2. Owned  — launch Chrome from real profile, open one new tab
-   * 3. Sandbox — fresh blank profile (no logins, but safe)
+   * Launch a clean Chromium instance.
+   * If auth.json exists from a previous session, load it
+   * so we get all saved cookies/logins without touching the real profile.
    *
-   * ⚠️ We NEVER call context.close() on the real profile — that wipes cookies/sessions.
+   * First run  → blank session (user logs in if needed)
+   * After that → auth.json is loaded automatically = instant logins
+   *
+   * No CDP, no persistent context, no profile lock, no corruption.
    */
   async init(headless = true) {
     if (this.page) return;
 
-    // ── 1. CDP ──────────────────────────────────────────────────────
-    try {
-      this.browser = await chromium.connectOverCDP('http://localhost:9222');
-      this.context = this.browser.contexts()[0];
-      this.agentPage = await this.context.newPage();
-      this.page = this.agentPage;
-      this.mode = 'cdp';
-      this.page.setDefaultTimeout(30000);
-      console.log('[Browser] Connected via CDP ✓ (all your accounts available)');
-      return;
-    } catch (_) { /* Chrome not on :9222 */ }
+    this.browser = await chromium.launch({
+      headless,
+      channel: 'chrome',
+      args: [
+        '--no-sandbox',
+        '--disable-blink-features=AutomationControlled',
+      ],
+    });
 
-    // ── 2. Owned (real profile) ──────────────────────────────────────
-    try {
-      const ctx = await chromium.launchPersistentContext(CHROME_PROFILE, {
-        headless,
-        channel: 'chrome',
-        args: [...SHARED_ARGS, '--remote-debugging-port=9222'], // next run can use CDP
-        viewport: { width: 1280, height: 800 },
-        timeout: 10000, // fail fast if a dialog blocks launch
-      });
-      this.browser = null;  // no Browser object — launchPersistentContext returns a Context
-      this.context = ctx;
-      this.agentPage = await ctx.newPage();
-      this.page = this.agentPage;
-      this.mode = 'owned';
-      this.page.setDefaultTimeout(30000);
-      console.log('[Browser] Launched Chrome with your real profile ✓');
-      return;
-    } catch (e) {
-      const locked = e.message.includes('lock') || e.message.includes('LOCK') || e.message.includes('already running');
-      if (!locked) throw e;
-      console.warn('[Browser] Profile locked (Chrome is open). Using sandbox — close Chrome first for account access.');
-    }
+    // Load saved auth state if available
+    const hasAuth = fs.existsSync(AUTH_FILE);
+    this.context = await this.browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      ...(hasAuth ? { storageState: AUTH_FILE } : {}),
+    });
 
-    // ── 3. Sandbox (fallback) ─────────────────────────────────────────
-    this.browser = await chromium.launch({ headless, channel: 'chrome', args: SHARED_ARGS });
-    this.context = await this.browser.newContext({ viewport: { width: 1280, height: 800 } });
-    this.agentPage = await this.context.newPage();
-    this.page = this.agentPage;
-    this.mode = 'sandbox';
+    this.page = await this.context.newPage();
     this.page.setDefaultTimeout(30000);
-    console.log('[Browser] Sandbox mode (no logins). Run Chrome with --remote-debugging-port=9222 for account access.');
+
+    console.log(`[Browser] Launched ${headless ? 'headless' : 'visible'} ${hasAuth ? '(auth loaded ✓)' : '(fresh session)'}`);
   }
 
   /**
-   * Close ONLY the tab we opened.
-   * In sandbox mode: also kills the throwaway browser.
-   * In owned/cdp mode: NEVER touch the context or browser — profile stays intact.
+   * Save auth state and close.
+   * Next run will auto-load cookies/logins from auth.json.
    */
   async close() {
     try {
-      await this.agentPage?.close().catch(() => { });
-      if (this.mode === 'sandbox') {
-        await this.context?.close().catch(() => { });
-        await this.browser?.close().catch(() => { });
+      // Persist auth state for next run
+      if (this.context) {
+        await this.context.storageState({ path: AUTH_FILE });
+        console.log('[Browser] Auth state saved to auth.json ✓');
       }
-      // owned/cdp: Chrome stays running with all sessions intact ✓
+    } catch (_) { }
+    try {
+      await this.browser?.close();
     } catch (_) { }
     this.browser = null;
     this.context = null;
     this.page = null;
-    this.agentPage = null;
-    this.mode = null;
   }
 
   // ------------- ACTION LAYER -------------
@@ -109,7 +75,7 @@ export class BrowserRuntime {
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await this.page.waitForTimeout(1500);
     } catch (e) {
-      console.warn(`[Browser] Navigation timed out for ${url}, continuing with partial page.`);
+      console.warn(`[Browser] Navigation timeout for ${url}, continuing.`);
     }
   }
 
@@ -119,7 +85,7 @@ export class BrowserRuntime {
       await locator.scrollIntoViewIfNeeded();
       await locator.click({ timeout: 10000 });
     } catch (e) {
-      throw new Error(`Failed to click element ${elementId}: ${e.message}`);
+      throw new Error(`Click #${elementId} failed: ${e.message}`);
     }
   }
 
@@ -129,7 +95,7 @@ export class BrowserRuntime {
       await locator.scrollIntoViewIfNeeded();
       await locator.fill(text);
     } catch (e) {
-      throw new Error(`Failed to type into element ${elementId}: ${e.message}`);
+      throw new Error(`Type into #${elementId} failed: ${e.message}`);
     }
   }
 
@@ -153,9 +119,6 @@ export class BrowserRuntime {
 
   // ------------- PERCEPTION LAYER -------------
 
-  /**
-   * Extracts a simplified DOM snapshot — injects data-agent-id on interactable elements.
-   */
   async observeState() {
     if (!this.page) throw new Error('Browser not initialized.');
 
