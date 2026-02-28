@@ -259,6 +259,33 @@ export class BrowserRuntime {
     }
   }
 
+  // ─────────────── SCREENSHOT ───────────────
+
+  /**
+   * Capture current viewport as a PNG buffer for the vision model.
+   */
+  async captureScreenshot() {
+    if (!this.page) throw new Error('Browser not initialized.');
+    // Temporarily hide overlay so it doesn't appear in screenshot
+    try {
+      await this.page.evaluate(() => {
+        const o = document.getElementById('agent-lock-overlay');
+        if (o) o.style.display = 'none';
+      });
+    } catch (_) { }
+
+    const buffer = await this.page.screenshot({ type: 'png' });
+
+    try {
+      await this.page.evaluate(() => {
+        const o = document.getElementById('agent-lock-overlay');
+        if (o) o.style.display = '';
+      });
+    } catch (_) { }
+
+    return buffer;
+  }
+
   // ─────────────── PERCEPTION LAYER ───────────────
 
   async observeState() {

@@ -12,13 +12,17 @@ export class Planner {
    * CHAIN MODE — single LLM call that returns a JSON array of steps.
    * The model sees the goal, page state, and action history.
    */
-  async planChain(goal, memory, pageState) {
+  async planChain(goal, memory, pageState, visualContext = '') {
     const maxChain = config.browserAgent.maxChainLength;
     const elementsForContext = (pageState.elements || [])
       .filter(el => el.inViewport)
       .slice(0, 50);
 
     const stepLog = memory.getStepLog();
+
+    const visualSection = visualContext
+      ? `\n## VISUAL CONTEXT (from screenshot)\n${visualContext}\n`
+      : '';
 
     const prompt = `You are the brain of a Browser Agent. You decide what to do next.
 
@@ -44,7 +48,7 @@ ${elementsForContext.length > 0
           return d;
         }).join('\n')
         : '(none visible — scroll down or wait)'}
-
+${visualSection}
 ## ACTIONS
 navigate  → {"action":"navigate","url":"URL"}
 click     → {"action":"click","elementId":ID}

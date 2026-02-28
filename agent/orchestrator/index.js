@@ -1,6 +1,7 @@
 import { Planner, STATIC_ACTIONS } from '../planner/index.js';
 import { BrowserRuntime } from '../browser/index.js';
 import { Memory } from '../memory/index.js';
+import { VisionObserver } from '../vision/index.js';
 import chalk from 'chalk';
 
 export class Orchestrator {
@@ -8,7 +9,9 @@ export class Orchestrator {
     this.planner = new Planner();
     this.browser = new BrowserRuntime();
     this.memory = new Memory();
+    this.vision = new VisionObserver();
     this.askUserFn = opts.askUserFn || null;
+    this._lastVisualContext = '';
   }
 
   async promptUser(question) {
@@ -131,12 +134,22 @@ export class Orchestrator {
     return v.ok ? 'ok' : 'replan';
   }
 
-  async observe() {
+  async observe(goal = '') {
     try {
-      const state = await this.browser.observeState();
+      // DOM + Screenshot in parallel
+      const [state, screenshot] = await Promise.all([
+        this.browser.observeState(),
+        this.browser.captureScreenshot().catch(() => null),
+      ]);
       this.memory.logState(state);
       const visible = state.elements.filter(e => e.inViewport).length;
       console.log(chalk.dim(`  👁  ${state.url} | ${visible} visible / ${state.elements.length} total`));
+
+      // Vision analysis (non-blocking — if it fails, DOM still works)
+      if (screenshot) {
+        this._lastVisualContext = await this.vision.analyze(screenshot, state.url, goal);
+      }
+
       return state;
     } catch (e) {
       console.warn(chalk.yellow(`  ⚠ Observe error: ${e.message}`));
@@ -162,12 +175,12 @@ export class Orchestrator {
         round++;
         console.log(chalk.blue(`\n════ Round ${round}/${maxSteps} ════`));
 
-        const state = await this.observe();
+        const state = await this.observe(goal);
 
         console.log(chalk.cyan('[Plan] Generating chain...'));
         let chain;
         try {
-          chain = await this.planner.planChain(goal, this.memory, state);
+          chain = await this.planner.planChain(goal, this.memory, state, this._lastVisualContext);
         } catch (e) {
           return this.buildPartialReport(goal, `Planner failed: ${e.message}`);
         }
