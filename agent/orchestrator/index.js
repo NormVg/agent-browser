@@ -12,6 +12,7 @@ export class Orchestrator {
     this.vision = new VisionObserver();
     this.askUserFn = opts.askUserFn || null;
     this._lastVisualContext = '';
+    this._lastUrl = '';  // Track URL changes to know when to re-run vision
   }
 
   async promptUser(question) {
@@ -46,9 +47,6 @@ export class Orchestrator {
     return report;
   }
 
-  /**
-   * Execute + verify a single action. Returns 'finish' | 'replan' | 'ok'
-   */
   async executeAction(action) {
     console.log(chalk.magenta(`  ➤ ${JSON.stringify(action)}`));
     this.memory.logAction(action);
@@ -85,8 +83,8 @@ export class Orchestrator {
           return 'ok';
 
         case 'wait':
-          await this.browser.wait(action.milliseconds || 1500);
-          this.memory.logOutcome(true, `Waited ${action.milliseconds || 1500}ms`);
+          await this.browser.wait(action.milliseconds || 1000);
+          this.memory.logOutcome(true, `Waited ${action.milliseconds || 1000}ms`);
           return 'ok';
 
         case 'extract':
@@ -105,7 +103,7 @@ export class Orchestrator {
 
         case 'finish':
           await this.browser.unlockPage();
-          console.log(chalk.green.bold(`\n🎉 Goal completed: ${action.result}\n`));
+          console.log(chalk.green.bold(`\n🎉 Done: ${action.result}\n`));
           return 'finish';
 
         case 'error':
@@ -125,7 +123,6 @@ export class Orchestrator {
     }
   }
 
-  /** Common verify helper */
   async _verify(action) {
     const v = await this.browser.verifyAction(action);
     const icon = v.ok ? chalk.green('  ✓') : chalk.red('  ✗');
@@ -134,20 +131,40 @@ export class Orchestrator {
     return v.ok ? 'ok' : 'replan';
   }
 
-  async observe(goal = '') {
+  /**
+   * Fast observe — DOM only. Used for mid-chain re-observe.
+   */
+  async observeDOM() {
     try {
-      // DOM + Screenshot in parallel
-      const [state, screenshot] = await Promise.all([
-        this.browser.observeState(),
-        this.browser.captureScreenshot().catch(() => null),
-      ]);
+      const state = await this.browser.observeState();
+      this.memory.logState(state);
+      return state;
+    } catch (e) {
+      return { url: 'unknown', title: '', elements: [] };
+    }
+  }
+
+  /**
+   * Full observe — DOM + Vision. Used once per round.
+   * Vision only runs on page change (new URL) or first round.
+   */
+  async observe(goal = '', forceVision = false) {
+    try {
+      const state = await this.browser.observeState();
       this.memory.logState(state);
       const visible = state.elements.filter(e => e.inViewport).length;
       console.log(chalk.dim(`  👁  ${state.url} | ${visible} visible / ${state.elements.length} total`));
 
-      // Vision analysis (non-blocking — if it fails, DOM still works)
-      if (screenshot) {
-        this._lastVisualContext = await this.vision.analyze(screenshot, state.url, goal);
+      // Only run vision if URL changed or forced (first round, after navigate)
+      const urlChanged = state.url !== this._lastUrl;
+      if (urlChanged || forceVision) {
+        this._lastUrl = state.url;
+        try {
+          const screenshot = await this.browser.captureScreenshot();
+          this._lastVisualContext = await this.vision.analyze(screenshot, state.url, goal);
+        } catch (_) {
+          // Vision failed — that's fine, DOM still works
+        }
       }
 
       return state;
@@ -157,16 +174,12 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Main execution loop.
-   * Lock happens ONCE before the first observe — stays on until finish/close.
-   */
   async run(goal, maxSteps = 25, headless = true) {
     console.log(chalk.blue(`\n[Orchestrator] "${goal}"`));
     console.log(chalk.dim(`  chain-mode | rounds=${maxSteps} | headless=${headless}`));
 
     await this.browser.init(headless);
-    await this.browser.lockPage(); // Lock immediately
+    await this.browser.lockPage();
 
     let round = 0;
 
@@ -175,7 +188,8 @@ export class Orchestrator {
         round++;
         console.log(chalk.blue(`\n════ Round ${round}/${maxSteps} ════`));
 
-        const state = await this.observe(goal);
+        // Full observe with vision on first round
+        const state = await this.observe(goal, round === 1);
 
         console.log(chalk.cyan('[Plan] Generating chain...'));
         let chain;
@@ -196,28 +210,35 @@ export class Orchestrator {
         });
 
         // Execute chain
-        let shouldReplan = false;
+        let prevAction = null;
         for (let i = 0; i < chain.length; i++) {
           const action = chain[i];
           const isLast = i === chain.length - 1;
           console.log(chalk.dim(`\n  [${i + 1}/${chain.length}] ${action.action}`));
 
-          // Re-observe before dynamic actions mid-chain to get fresh element IDs
+          // Smart re-observe: only before dynamic actions AND only if previous action
+          // could have changed the DOM (navigate, scroll, click that wasn't a form toggle)
           if (['click', 'type', 'selectOption'].includes(action.action) && i > 0) {
-            await this.observe();
+            const prevChanged = prevAction && (
+              prevAction.action === 'navigate' ||
+              prevAction.action === 'scroll' ||
+              prevAction.action === 'pressEnter' ||
+              prevAction.action === 'wait'
+            );
+            if (prevChanged) {
+              await this.observeDOM();
+            }
           }
 
           const result = await this.executeAction(action);
+          prevAction = action;
 
           if (result === 'finish') return action.result;
 
-          if (result === 'replan') {
-            shouldReplan = true;
-            break;
-          }
+          if (result === 'replan') break;
 
-          // Smooth delay between steps
-          if (!isLast) await this.browser.wait(500);
+          // Tiny delay between steps — just enough for DOM to settle
+          if (!isLast) await this.browser.wait(200);
         }
       }
 

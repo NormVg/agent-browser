@@ -41,7 +41,7 @@ export default {
   // Browser Agent Configuration
   browserAgent: {
     maxRounds: 25,        // Total observe→plan→execute cycles
-    maxChainLength: 6,    // Max actions per LLM call
+    maxChainLength: 12,    // Max actions per LLM call
 
     // Vision model for screenshot analysis (separate from planner model)
     visionModel: {

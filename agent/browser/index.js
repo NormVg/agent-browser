@@ -123,7 +123,7 @@ export class BrowserRuntime {
   async navigate(url) {
     try {
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await this.page.waitForTimeout(1500);
+      await this.page.waitForTimeout(800);
     } catch (e) {
       console.warn(`[Browser] Navigation timeout for ${url}, continuing.`);
     }
@@ -158,7 +158,7 @@ export class BrowserRuntime {
           el.style.animation = '';
         }, 1500);
       }, elementId);
-      await this.page.waitForTimeout(400);
+      await this.page.waitForTimeout(150);
     } catch (_) { }
   }
 
