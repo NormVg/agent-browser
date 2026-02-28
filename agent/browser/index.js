@@ -188,12 +188,39 @@ export class BrowserRuntime {
   }
 
   async scroll(direction) {
-    if (direction === 'down') {
-      await this.page.evaluate(() => window.scrollBy(0, window.innerHeight * 0.8));
-    } else {
-      await this.page.evaluate(() => window.scrollBy(0, -window.innerHeight * 0.8));
-    }
-    await this.page.waitForTimeout(500);
+    await this.page.evaluate((dir) => {
+      const amount = window.innerHeight * 0.7;
+      const delta = dir === 'down' ? amount : -amount;
+
+      // Find the deepest scrollable container
+      function findScrollable(root) {
+        const elements = root.querySelectorAll('*');
+        let best = null;
+        let bestArea = 0;
+        for (const el of elements) {
+          const style = window.getComputedStyle(el);
+          const overflowY = style.overflowY;
+          if (overflowY === 'auto' || overflowY === 'scroll') {
+            if (el.scrollHeight > el.clientHeight + 10) {
+              const area = el.clientWidth * el.clientHeight;
+              if (area > bestArea) {
+                bestArea = area;
+                best = el;
+              }
+            }
+          }
+        }
+        return best;
+      }
+
+      const container = findScrollable(document);
+      if (container) {
+        container.scrollBy({ top: delta, behavior: 'smooth' });
+      } else {
+        window.scrollBy({ top: delta, behavior: 'smooth' });
+      }
+    }, direction);
+    await this.page.waitForTimeout(800);
   }
 
   async wait(ms) {
