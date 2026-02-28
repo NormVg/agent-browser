@@ -4,11 +4,6 @@ import { Memory } from '../memory/index.js';
 import chalk from 'chalk';
 
 export class Orchestrator {
-  /**
-   * @param {Object} opts
-   * @param {Function} opts.askUserFn - callback(question) => Promise<string>
-   *   Injected from chat.js to reuse the existing readline — avoids stdin conflicts.
-   */
   constructor(opts = {}) {
     this.planner = new Planner();
     this.browser = new BrowserRuntime();
@@ -17,11 +12,8 @@ export class Orchestrator {
   }
 
   async promptUser(question) {
-    if (this.askUserFn) {
-      return this.askUserFn(question);
-    }
-    // No callback — can't ask the user, return a fallback
-    console.log(chalk.yellow(`[Agent] Wanted to ask: "${question}" — skipping (no stdin access)`));
+    if (this.askUserFn) return this.askUserFn(question);
+    console.log(chalk.yellow(`[Agent] Wanted to ask: "${question}" — skipping (no stdin)`));
     return '(no answer available)';
   }
 
@@ -32,7 +24,7 @@ export class Orchestrator {
     const actionsLog = history.filter(e => e.action?.action !== 'error').map(e => {
       const a = e.action;
       if (a.action === 'navigate') return `Navigated to: ${a.url}`;
-      if (a.action === 'click') return `Clicked element #${a.elementId}`;
+      if (a.action === 'click') return `Clicked #${a.elementId}`;
       if (a.action === 'type') return `Typed "${a.text}" into #${a.elementId}`;
       if (a.action === 'pressEnter') return `Pressed Enter`;
       if (a.action === 'scroll') return `Scrolled ${a.direction}`;
@@ -52,8 +44,7 @@ export class Orchestrator {
   }
 
   /**
-   * Execute a single action object.
-   * Returns: 'finish' | 'replan' | 'ok' | 'fatal'
+   * Execute + verify a single action. Returns 'finish' | 'replan' | 'ok'
    */
   async executeAction(action) {
     console.log(chalk.magenta(`  ➤ ${JSON.stringify(action)}`));
@@ -63,46 +54,22 @@ export class Orchestrator {
       switch (action.action) {
         case 'navigate':
           await this.browser.navigate(action.url);
-          {
-            const v = await this.browser.verifyAction(action);
-            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
-            this.memory.logOutcome(v.ok, v.detail);
-            if (!v.ok) return 'replan';
-          }
-          return 'ok';
+          return this._verify(action);
 
         case 'click':
-          if (!action.elementId) throw new Error("Missing elementId for click");
+          if (!action.elementId) throw new Error('Missing elementId');
           await this.browser.click(String(action.elementId));
-          {
-            const v = await this.browser.verifyAction(action);
-            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
-            this.memory.logOutcome(v.ok, v.detail);
-            if (!v.ok) return 'replan';
-          }
-          return 'ok';
+          return this._verify(action);
 
         case 'type':
-          if (!action.elementId || action.text === undefined) throw new Error("Missing elementId or text for type");
+          if (!action.elementId || action.text === undefined) throw new Error('Missing elementId or text');
           await this.browser.type(String(action.elementId), action.text);
-          {
-            const v = await this.browser.verifyAction(action);
-            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
-            this.memory.logOutcome(v.ok, v.detail);
-            if (!v.ok) return 'replan';
-          }
-          return 'ok';
+          return this._verify(action);
 
         case 'selectOption':
-          if (!action.elementId || !action.value) throw new Error("Missing elementId or value for selectOption");
+          if (!action.elementId || !action.value) throw new Error('Missing elementId or value');
           await this.browser.selectOption(String(action.elementId), action.value);
-          {
-            const v = await this.browser.verifyAction(action);
-            console.log(v.ok ? chalk.green(`  ✓ ${v.detail}`) : chalk.red(`  ✗ ${v.detail}`));
-            this.memory.logOutcome(v.ok, v.detail);
-            if (!v.ok) return 'replan';
-          }
-          return 'ok';
+          return this._verify(action);
 
         case 'pressEnter':
           await this.browser.pressEnter();
@@ -114,24 +81,20 @@ export class Orchestrator {
           this.memory.logOutcome(true, `Scrolled ${action.direction || 'down'}`);
           return 'ok';
 
-        case 'wait': {
-          const ms = action.milliseconds || 1500;
-          console.log(chalk.dim(`  ⏳ ${ms}ms...`));
-          await this.browser.wait(ms);
-          this.memory.logOutcome(true, `Waited ${ms}ms`);
+        case 'wait':
+          await this.browser.wait(action.milliseconds || 1500);
+          this.memory.logOutcome(true, `Waited ${action.milliseconds || 1500}ms`);
           return 'ok';
-        }
 
         case 'extract':
           console.log(chalk.green(`  📋 ${action.instruction}`));
           this.memory.logOutcome(true, 'Extract noted');
-          // Re-observe + re-plan after extract so planner can read fresh data
           return 'replan';
 
         case 'askUser': {
-          await this.browser.unlockPage(); // Let user interact
+          await this.browser.unlockPage();
           const ans = await this.promptUser(action.question);
-          await this.browser.lockPage();   // Re-lock after user is done
+          await this.browser.lockPage();
           this.memory.logAction({ action: 'userResponse', response: ans });
           this.memory.logOutcome(true, 'Got user answer');
           return 'replan';
@@ -148,22 +111,32 @@ export class Orchestrator {
           return 'replan';
 
         default:
-          console.log(chalk.yellow(`  ? Unknown action: ${action.action}`));
+          console.log(chalk.yellow(`  ? Unknown: ${action.action}`));
           return 'ok';
       }
     } catch (e) {
-      console.error(chalk.red(`  ✗ Failed: ${e.message}`));
+      console.error(chalk.red(`  ✗ ${e.message}`));
       this.memory.logAction({ action: 'error', message: e.message });
       this.memory.logOutcome(false, e.message);
-      return 'replan'; // Failure → re-plan, don't die
+      return 'replan';
     }
+  }
+
+  /** Common verify helper */
+  async _verify(action) {
+    const v = await this.browser.verifyAction(action);
+    const icon = v.ok ? chalk.green('  ✓') : chalk.red('  ✗');
+    console.log(`${icon} ${v.detail}`);
+    this.memory.logOutcome(v.ok, v.detail);
+    return v.ok ? 'ok' : 'replan';
   }
 
   async observe() {
     try {
       const state = await this.browser.observeState();
       this.memory.logState(state);
-      console.log(chalk.dim(`  👁  ${state.url} | ${state.elements.length} elements`));
+      const visible = state.elements.filter(e => e.inViewport).length;
+      console.log(chalk.dim(`  👁  ${state.url} | ${visible} visible / ${state.elements.length} total`));
       return state;
     } catch (e) {
       console.warn(chalk.yellow(`  ⚠ Observe error: ${e.message}`));
@@ -172,19 +145,15 @@ export class Orchestrator {
   }
 
   /**
-   * Chain-based execution loop.
-   *
-   * stepCount = number of planning rounds (observe + planChain = 1 round).
-   * Each round runs a full chain of actions without any LLM calls between them.
-   * Re-planning only triggered by: failure, extract, askUser, or explicit finish.
-   *
-   * ✅ Early exit: returns as soon as 'finish' is hit — never exhausts all rounds.
+   * Main execution loop.
+   * Lock happens ONCE before the first observe — stays on until finish/close.
    */
   async run(goal, maxSteps = 25, headless = true) {
     console.log(chalk.blue(`\n[Orchestrator] "${goal}"`));
     console.log(chalk.dim(`  chain-mode | rounds=${maxSteps} | headless=${headless}`));
 
     await this.browser.init(headless);
+    await this.browser.lockPage(); // Lock immediately
 
     let round = 0;
 
@@ -193,11 +162,9 @@ export class Orchestrator {
         round++;
         console.log(chalk.blue(`\n════ Round ${round}/${maxSteps} ════`));
 
-        // ── OBSERVE (once per round, not per action) ──
         const state = await this.observe();
 
-        // ── PLAN: get full chain ──
-        console.log(chalk.cyan('[Plan]  Generating chain...'));
+        console.log(chalk.cyan('[Plan] Generating chain...'));
         let chain;
         try {
           chain = await this.planner.planChain(goal, this.memory, state);
@@ -209,44 +176,35 @@ export class Orchestrator {
           return this.buildPartialReport(goal, 'Planner returned empty chain');
         }
 
-        console.log(chalk.cyan(`[Chain] ${chain.length} action(s):`));
-        chain.forEach((s, i) => console.log(chalk.dim(`        ${i + 1}. ${s.action}${s.url ? ' → ' + s.url : s.elementId ? ' #' + s.elementId : s.result ? ' → "' + s.result.substring(0, 60) + '"' : ''}`)));
+        console.log(chalk.cyan(`[Chain] ${chain.length} step(s):`));
+        chain.forEach((s, i) => {
+          const detail = s.url ? ` → ${s.url}` : s.elementId ? ` #${s.elementId}` : s.result ? ` → "${s.result.substring(0, 50)}"` : '';
+          console.log(chalk.dim(`  ${i + 1}. ${s.action}${detail}`));
+        });
 
-        // ── LOCK page from user interaction ──
-        await this.browser.lockPage();
-
-        // ── EXECUTE CHAIN ──
+        // Execute chain
         let shouldReplan = false;
         for (let i = 0; i < chain.length; i++) {
           const action = chain[i];
           const isLast = i === chain.length - 1;
           console.log(chalk.dim(`\n  [${i + 1}/${chain.length}] ${action.action}`));
 
-          // For click/type/selectOption: refresh observation right before to get live element IDs
+          // Re-observe before dynamic actions mid-chain to get fresh element IDs
           if (['click', 'type', 'selectOption'].includes(action.action) && i > 0) {
             await this.observe();
           }
 
           const result = await this.executeAction(action);
 
-          if (result === 'finish') {
-            return action.result; // ✅ Early exit — done!
-          }
+          if (result === 'finish') return action.result;
 
           if (result === 'replan') {
             shouldReplan = true;
-            break; // Break chain, outer loop will re-observe + re-plan
+            break;
           }
 
-          // Smooth delay between actions to prevent UI jerking
-          if (!isLast) {
-            await this.browser.wait(500);
-          }
-        }
-
-        if (!shouldReplan && chain.every(a => a.action !== 'finish')) {
-          // Chain ran to completion without a finish — check if goal is done
-          // The next round's observe+plan will decide
+          // Smooth delay between steps
+          if (!isLast) await this.browser.wait(500);
         }
       }
 

@@ -2,6 +2,7 @@ import { Orchestrator } from '../agent/orchestrator/index.js';
 import { z } from 'zod';
 import { tool } from 'ai';
 import chalk from 'chalk';
+import config from '../config.js';
 
 /**
  * Create the browser agent tool with access to the chat's readline.
@@ -25,7 +26,7 @@ export function createBrowserTool(rl) {
       showBrowser: z.boolean().describe('Set to true if the user wants to watch the browser'),
     }),
     execute: async ({ goal, showBrowser }) => {
-      const maxSteps = 25;
+      const maxSteps = config.browserAgent.maxRounds;
       try {
         const orchestrator = new Orchestrator({ askUserFn });
         const result = await orchestrator.run(goal, maxSteps, !showBrowser);

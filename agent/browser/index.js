@@ -11,31 +11,18 @@ export class BrowserRuntime {
     this.browser = null;
     this.context = null;
     this.page = null;
+    this._locked = false; // Track lock state so we can re-inject after navigate
   }
 
-  /**
-   * Launch a clean Chromium instance.
-   * If auth.json exists from a previous session, load it
-   * so we get all saved cookies/logins without touching the real profile.
-   *
-   * First run  → blank session (user logs in if needed)
-   * After that → auth.json is loaded automatically = instant logins
-   *
-   * No CDP, no persistent context, no profile lock, no corruption.
-   */
   async init(headless = true) {
     if (this.page) return;
 
     this.browser = await chromium.launch({
       headless,
       channel: 'chrome',
-      args: [
-        '--no-sandbox',
-        '--disable-blink-features=AutomationControlled',
-      ],
+      args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
     });
 
-    // Load saved auth state if available
     const hasAuth = fs.existsSync(AUTH_FILE);
     this.context = await this.browser.newContext({
       viewport: { width: 1280, height: 800 },
@@ -44,38 +31,42 @@ export class BrowserRuntime {
 
     this.page = await this.context.newPage();
     this.page.setDefaultTimeout(30000);
-
     console.log(`[Browser] Launched ${headless ? 'headless' : 'visible'} ${hasAuth ? '(auth loaded ✓)' : '(fresh session)'}`);
   }
 
-  /**
-   * Save auth state and close.
-   * Next run will auto-load cookies/logins from auth.json.
-   */
   async close() {
     try {
-      // Persist auth state for next run
       if (this.context) {
         await this.context.storageState({ path: AUTH_FILE });
-        console.log('[Browser] Auth state saved to auth.json ✓');
+        console.log('[Browser] Auth state saved ✓');
       }
     } catch (_) { }
-    try {
-      await this.browser?.close();
-    } catch (_) { }
+    try { await this.browser?.close(); } catch (_) { }
     this.browser = null;
     this.context = null;
     this.page = null;
+    this._locked = false;
   }
 
-  // ------------- PAGE LOCK LAYER -------------
+  // ─────────────── PAGE LOCK ───────────────
 
-  /**
-   * Visual lock — shows red glow border + badge to signal the agent is in control.
-   * Visual lock — red glow border + badge, blocks user clicks.
-   * Agent actions temporarily disable the overlay via withOverlayOff().
-   */
   async lockPage() {
+    this._locked = true;
+    await this._injectOverlay();
+  }
+
+  async unlockPage() {
+    this._locked = false;
+    try {
+      await this.page.evaluate(() => {
+        document.getElementById('agent-lock-overlay')?.remove();
+      });
+    } catch (_) { }
+  }
+
+  /** Re-inject overlay if locked (called after navigate which destroys DOM) */
+  async _injectOverlay() {
+    if (!this._locked) return;
     try {
       await this.page.evaluate(() => {
         if (document.getElementById('agent-lock-overlay')) return;
@@ -84,21 +75,19 @@ export class BrowserRuntime {
         overlay.style.cssText = `
           position: fixed; inset: 0; z-index: 2147483647;
           pointer-events: all;
-          box-shadow: inset 0 0 60px 20px rgba(255, 50, 50, 0.15), inset 0 0 4px 2px rgba(255, 50, 50, 0.3);
-          border: 2px solid rgba(255, 50, 50, 0.25);
+          box-shadow: inset 0 0 60px 20px rgba(255,50,50,0.15), inset 0 0 4px 2px rgba(255,50,50,0.3);
+          border: 2px solid rgba(255,50,50,0.25);
         `;
-        // Badge
         const badge = document.createElement('div');
         badge.style.cssText = `
-          position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2147483647;
+          position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+          z-index: 2147483647; pointer-events: none;
           background: rgba(0,0,0,0.8); color: #ff5555; padding: 6px 18px;
           border-radius: 20px; font: 600 12px/1 -apple-system, sans-serif;
           letter-spacing: 0.5px; border: 1px solid rgba(255,50,50,0.3);
           box-shadow: 0 2px 12px rgba(0,0,0,0.4);
-          pointer-events: none;
         `;
         badge.textContent = '🤖 AI Agent Working...';
-        badge.id = 'agent-lock-badge';
         overlay.appendChild(badge);
         document.body.appendChild(overlay);
       });
@@ -106,21 +95,10 @@ export class BrowserRuntime {
   }
 
   /**
-   * Re-enable user interaction.
+   * Temporarily disable overlay for a Playwright action — always restores,
+   * even if the action throws.
    */
-  async unlockPage() {
-    try {
-      await this.page.evaluate(() => {
-        document.getElementById('agent-lock-overlay')?.remove();
-        document.getElementById('agent-lock-badge')?.remove();
-      });
-    } catch (_) { }
-  }
-
-  /**
-   * Temporarily drop overlay for a Playwright action, then restore it.
-   */
-  async withOverlayOff(fn) {
+  async _withOverlayOff(fn) {
     try {
       await this.page.evaluate(() => {
         const o = document.getElementById('agent-lock-overlay');
@@ -128,19 +106,19 @@ export class BrowserRuntime {
       });
     } catch (_) { }
 
-    const result = await fn();
-
     try {
-      await this.page.evaluate(() => {
-        const o = document.getElementById('agent-lock-overlay');
-        if (o) o.style.pointerEvents = 'all';
-      });
-    } catch (_) { }
-
-    return result;
+      return await fn();
+    } finally {
+      try {
+        await this.page.evaluate(() => {
+          const o = document.getElementById('agent-lock-overlay');
+          if (o) o.style.pointerEvents = 'all';
+        });
+      } catch (_) { }
+    }
   }
 
-  // ------------- ACTION LAYER -------------
+  // ─────────────── ACTION LAYER ───────────────
 
   async navigate(url) {
     try {
@@ -149,11 +127,10 @@ export class BrowserRuntime {
     } catch (e) {
       console.warn(`[Browser] Navigation timeout for ${url}, continuing.`);
     }
+    // Navigation destroys DOM — re-inject overlay + highlight styles
+    await this._injectOverlay();
   }
 
-  /**
-   * Visual highlight — shows a red pulse outline on the element the agent is about to interact with.
-   */
   async highlight(elementId) {
     try {
       await this.page.evaluate((id) => {
@@ -186,114 +163,28 @@ export class BrowserRuntime {
   }
 
   async click(elementId) {
-    try {
-      const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
-      await locator.scrollIntoViewIfNeeded();
-      await this.highlight(elementId);
-      await this.withOverlayOff(() => locator.click({ timeout: 10000 }));
-    } catch (e) {
-      throw new Error(`Click #${elementId} failed: ${e.message}`);
-    }
+    const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
+    await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => { });
+    await this.highlight(elementId);
+    await this._withOverlayOff(() => locator.click({ timeout: 10000 }));
   }
 
   async type(elementId, text) {
-    try {
-      const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
-      await locator.scrollIntoViewIfNeeded();
-      await this.highlight(elementId);
-      await this.withOverlayOff(() => locator.fill(text));
-    } catch (e) {
-      throw new Error(`Type into #${elementId} failed: ${e.message}`);
-    }
+    const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
+    await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => { });
+    await this.highlight(elementId);
+    await this._withOverlayOff(() => locator.fill(text));
   }
 
   async pressEnter() {
     await this.page.keyboard.press('Enter');
-    await this.page.waitForTimeout(1500);
+    await this.page.waitForTimeout(1000);
   }
 
   async selectOption(elementId, value) {
-    try {
-      const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
-      await this.highlight(elementId);
-      await this.withOverlayOff(() => locator.selectOption(value));
-    } catch (e) {
-      throw new Error(`Select option on #${elementId} failed: ${e.message}`);
-    }
-  }
-
-  // ------------- VERIFICATION LAYER -------------
-
-  /**
-   * Verify whether the last action actually succeeded.
-   * Returns { ok: boolean, detail: string }
-   */
-  async verifyAction(action) {
-    try {
-      await this.page.waitForTimeout(300); // Small settle time
-
-      switch (action.action) {
-        case 'navigate': {
-          const currentUrl = this.page.url();
-          if (currentUrl === 'about:blank' || currentUrl === '') {
-            return { ok: false, detail: `Navigation did not load — still on blank page` };
-          }
-          return { ok: true, detail: `On ${currentUrl}` };
-        }
-
-        case 'type': {
-          const value = await this.page.evaluate((id) => {
-            const el = document.querySelector(`[data-agent-id="${id}"]`);
-            return el?.value || el?.innerText || '';
-          }, String(action.elementId));
-          const expected = action.text;
-          if (value.includes(expected) || expected.includes(value)) {
-            return { ok: true, detail: `Field contains "${value.substring(0, 50)}"` };
-          }
-          return { ok: false, detail: `Expected "${expected}" but field has "${value.substring(0, 50)}"` };
-        }
-
-        case 'click': {
-          // Check if a radio/checkbox was toggled
-          const state = await this.page.evaluate((id) => {
-            const el = document.querySelector(`[data-agent-id="${id}"]`);
-            if (!el) return { exists: false };
-            return {
-              exists: true,
-              checked: el.checked || el.getAttribute('aria-checked') === 'true',
-              role: el.getAttribute('role'),
-            };
-          }, String(action.elementId));
-          if (!state.exists) {
-            return { ok: false, detail: `Element #${action.elementId} no longer exists (page may have changed)` };
-          }
-          if (state.role === 'radio' || state.role === 'checkbox') {
-            return state.checked
-              ? { ok: true, detail: `${state.role} #${action.elementId} is now checked ✓` }
-              : { ok: false, detail: `${state.role} #${action.elementId} was NOT toggled` };
-          }
-          // For normal buttons/links — just confirm the element existed
-          return { ok: true, detail: `Clicked #${action.elementId}` };
-        }
-
-        case 'selectOption': {
-          const selected = await this.page.evaluate((id) => {
-            const el = document.querySelector(`[data-agent-id="${id}"]`);
-            if (el?.tagName === 'SELECT') return el.options[el.selectedIndex]?.text || '';
-            return '';
-          }, String(action.elementId));
-          if (selected && action.value && selected.toLowerCase().includes(action.value.toLowerCase())) {
-            return { ok: true, detail: `Selected "${selected}"` };
-          }
-          return { ok: false, detail: `Expected "${action.value}" but got "${selected}"` };
-        }
-
-        default:
-          return { ok: true, detail: 'No verification needed' };
-      }
-    } catch (e) {
-      return { ok: true, detail: `Verify skipped: ${e.message}` };
-    }
+    const locator = this.page.locator(`[data-agent-id="${elementId}"]`);
+    await this.highlight(elementId);
+    await this._withOverlayOff(() => locator.selectOption(value));
   }
 
   async scroll(direction) {
@@ -309,27 +200,86 @@ export class BrowserRuntime {
     await this.page.waitForTimeout(ms);
   }
 
-  // ------------- PERCEPTION LAYER -------------
+  // ─────────────── VERIFICATION LAYER ───────────────
+
+  async verifyAction(action) {
+    try {
+      await this.page.waitForTimeout(300);
+      switch (action.action) {
+        case 'navigate': {
+          const url = this.page.url();
+          return url && url !== 'about:blank'
+            ? { ok: true, detail: `On ${url}` }
+            : { ok: false, detail: 'Still on blank page' };
+        }
+        case 'type': {
+          const value = await this.page.evaluate((id) => {
+            const el = document.querySelector(`[data-agent-id="${id}"]`);
+            return el?.value || el?.innerText || '';
+          }, String(action.elementId));
+          const match = value.includes(action.text) || action.text.includes(value);
+          return match
+            ? { ok: true, detail: `Field has "${value.substring(0, 50)}"` }
+            : { ok: false, detail: `Expected "${action.text}" but got "${value.substring(0, 50)}"` };
+        }
+        case 'click': {
+          const state = await this.page.evaluate((id) => {
+            const el = document.querySelector(`[data-agent-id="${id}"]`);
+            if (!el) return { exists: false };
+            return {
+              exists: true,
+              checked: el.checked || el.getAttribute('aria-checked') === 'true',
+              role: el.getAttribute('role'),
+            };
+          }, String(action.elementId));
+          if (!state.exists) return { ok: true, detail: 'Element gone (page likely changed — ok)' };
+          if (state.role === 'radio' || state.role === 'checkbox') {
+            return state.checked
+              ? { ok: true, detail: `${state.role} checked ✓` }
+              : { ok: false, detail: `${state.role} NOT toggled` };
+          }
+          return { ok: true, detail: `Clicked #${action.elementId}` };
+        }
+        case 'selectOption': {
+          const selected = await this.page.evaluate((id) => {
+            const el = document.querySelector(`[data-agent-id="${id}"]`);
+            if (el?.tagName === 'SELECT') return el.options[el.selectedIndex]?.text || '';
+            return '';
+          }, String(action.elementId));
+          const match = selected && action.value && selected.toLowerCase().includes(action.value.toLowerCase());
+          return match
+            ? { ok: true, detail: `Selected "${selected}"` }
+            : { ok: false, detail: `Expected "${action.value}" got "${selected}"` };
+        }
+        default:
+          return { ok: true, detail: 'ok' };
+      }
+    } catch (e) {
+      return { ok: true, detail: `Verify skipped: ${e.message}` };
+    }
+  }
+
+  // ─────────────── PERCEPTION LAYER ───────────────
 
   async observeState() {
     if (!this.page) throw new Error('Browser not initialized.');
-
-    try {
-      await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 });
-    } catch (_) { }
+    try { await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }); } catch (_) { }
 
     const state = await this.page.evaluate(() => {
       let idCounter = 1;
       const elements = [];
-      const interactableTags = ['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION'];
-      const formRoles = ['radio', 'checkbox', 'option', 'listbox', 'combobox', 'searchbox', 'button', 'link', 'menuitem', 'switch', 'tab'];
-      const labelTags = ['LABEL', 'LEGEND'];
+      const interactableTags = new Set(['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION']);
+      const formRoles = new Set(['radio', 'checkbox', 'option', 'listbox', 'combobox', 'searchbox', 'button', 'link', 'menuitem', 'switch', 'tab']);
+      const labelTags = new Set(['LABEL', 'LEGEND']);
+      const skipIds = new Set(['agent-lock-overlay', 'agent-lock-badge', 'agent-highlight-style']);
 
       const walker = document.createTreeWalker(
         document.body || document.documentElement,
         NodeFilter.SHOW_ELEMENT,
         {
           acceptNode(node) {
+            // Skip agent-injected elements entirely
+            if (skipIds.has(node.id)) return NodeFilter.FILTER_REJECT;
             const style = window.getComputedStyle(node);
             if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) {
               return NodeFilter.FILTER_REJECT;
@@ -344,19 +294,24 @@ export class BrowserRuntime {
 
       let currentNode = walker.currentNode;
       while (currentNode) {
-        let isInteractable = interactableTags.includes(currentNode.tagName);
+        // Skip agent elements that somehow passed the filter
+        if (currentNode.id && skipIds.has(currentNode.id)) {
+          currentNode = walker.nextNode();
+          continue;
+        }
 
+        let isInteractable = interactableTags.has(currentNode.tagName);
         if (!isInteractable) {
           const role = currentNode.getAttribute('role');
-          if (role && formRoles.includes(role)) {
+          if (role && formRoles.has(role)) {
             isInteractable = true;
           } else if (currentNode.onclick || currentNode.getAttribute('tabindex') === '0') {
             isInteractable = true;
           }
         }
 
-        const isLabel = labelTags.includes(currentNode.tagName) || currentNode.getAttribute('role') === 'heading';
-        const isHeading = ['H1', 'H2', 'H3'].includes(currentNode.tagName);
+        const isLabel = labelTags.has(currentNode.tagName) || currentNode.getAttribute('role') === 'heading';
+        const isHeading = currentNode.tagName === 'H1' || currentNode.tagName === 'H2' || currentNode.tagName === 'H3';
 
         if (isInteractable || isHeading || isLabel) {
           const rect = currentNode.getBoundingClientRect();
@@ -371,14 +326,12 @@ export class BrowserRuntime {
             currentNode.value ||
             currentNode.getAttribute('aria-label') ||
             currentNode.getAttribute('data-value') || ''
-          ).trim().substring(0, 120);
+          ).trim().substring(0, 100);
 
-          // Detect checked/selected state for form controls
           const role = currentNode.getAttribute('role');
           const isChecked = currentNode.checked
             || currentNode.getAttribute('aria-checked') === 'true'
-            || currentNode.getAttribute('aria-selected') === 'true'
-            || currentNode.classList?.contains('isChecked');
+            || currentNode.getAttribute('aria-selected') === 'true';
 
           elements.push({
             id: idCounter,
@@ -389,20 +342,14 @@ export class BrowserRuntime {
             ariaLabel: currentNode.getAttribute('aria-label') || undefined,
             href: currentNode.tagName === 'A' ? currentNode.href : undefined,
             checked: isChecked || undefined,
-            forId: currentNode.getAttribute('for') || undefined,
             inViewport,
           });
-
           idCounter++;
         }
         currentNode = walker.nextNode();
       }
 
-      return {
-        url: window.location.href,
-        title: document.title,
-        elements,
-      };
+      return { url: window.location.href, title: document.title, elements };
     });
 
     return state;

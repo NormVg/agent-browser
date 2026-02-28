@@ -1,6 +1,7 @@
 import { getModel } from '../../lib/ai.js';
 import { generateText } from 'ai';
 import chalk from 'chalk';
+import config from '../../config.js';
 
 // Steps that can run without any live page data (no elementId needed)
 export const STATIC_ACTIONS = new Set(['navigate', 'wait', 'scroll', 'pressEnter']);
@@ -8,130 +9,110 @@ export const STATIC_ACTIONS = new Set(['navigate', 'wait', 'scroll', 'pressEnter
 export class Planner {
 
   /**
-   * CHAIN MODE — Ask the model for a sequence of steps upfront.
-   * Returns an array of action objects.
-   * Dynamic steps (click/type) are placeholders until re-plan.
+   * CHAIN MODE — single LLM call that returns a JSON array of steps.
+   * The model sees the goal, page state, and action history.
    */
   async planChain(goal, memory, pageState) {
+    const maxChain = config.browserAgent.maxChainLength;
     const elementsForContext = (pageState.elements || [])
       .filter(el => el.inViewport)
-      .slice(0, 40);
+      .slice(0, 50);
 
     const stepLog = memory.getStepLog();
 
-    const prompt = `You are the brain of an autonomous Browser Agent.
+    const prompt = `You are the brain of a Browser Agent. You decide what to do next.
 
 ## GOAL
 "${goal}"
 
-## WHAT HAS HAPPENED SO FAR
-${stepLog || '(nothing yet — this is the first step)'}
+## HISTORY
+${stepLog || '(first step — nothing done yet)'}
 
 ## CURRENT PAGE
 URL: ${pageState.url}
 Title: "${pageState.title || 'unknown'}"
 
-## VISIBLE ELEMENTS (only in viewport)
+## VISIBLE ELEMENTS
 ${elementsForContext.length > 0
         ? elementsForContext.map(el => {
-          let desc = `  [${el.id}] ${el.tag}`;
-          if (el.type) desc += `[${el.type}]`;
-          if (el.role) desc += `(${el.role})`;
-          desc += ` "${el.text || el.ariaLabel || ''}"`; if (el.checked) desc += ' ✓CHECKED';
-          if (el.href) desc += ` → ${el.href}`;
-          return desc;
+          let d = `[${el.id}] ${el.tag}`;
+          if (el.type) d += `[${el.type}]`;
+          if (el.role) d += `(${el.role})`;
+          d += ` "${el.text || el.ariaLabel || ''}"`;
+          if (el.checked) d += ' ✓';
+          if (el.href) d += ` → ${el.href}`;
+          return d;
         }).join('\n')
-        : '  (none visible — page may still be loading)'}
+        : '(none visible — scroll down or wait)'}
 
-## YOUR JOB
-Output a JSON array of sequential steps to accomplish the goal.
-Steps are executed in order. Stop planning once the goal is achievable or finished.
-Plan UP TO 6 steps at a time — keep chains short and focused.
+## ACTIONS
+navigate  → {"action":"navigate","url":"URL"}
+click     → {"action":"click","elementId":ID}
+type      → {"action":"type","elementId":ID,"text":"value"}
+select    → {"action":"selectOption","elementId":ID,"value":"option"}
+enter     → {"action":"pressEnter"}
+scroll    → {"action":"scroll","direction":"down"}
+wait      → {"action":"wait","milliseconds":1500}
+extract   → {"action":"extract","instruction":"what to read"}
+ask       → {"action":"askUser","question":"what you need"}
+done      → {"action":"finish","result":"summary of what was accomplished"}
 
-## AVAILABLE STEP TYPES
-{"action": "navigate", "url": "https://..."}
-{"action": "click", "elementId": "NUMERIC_ID"}
-{"action": "type", "elementId": "NUMERIC_ID", "text": "text"}
-{"action": "selectOption", "elementId": "NUMERIC_ID", "value": "option text"}
-{"action": "pressEnter"}
-{"action": "scroll", "direction": "down"}
-{"action": "wait", "milliseconds": 1500}
-{"action": "extract", "instruction": "what to extract"}
-{"action": "askUser", "question": "question"}
-{"action": "finish", "result": "final answer or summary"}
-
-## SMART SHORTCUTS — ALWAYS USE THESE FIRST
-  YouTube search:   https://www.youtube.com/results?search_query=QUERY
-  YouTube video:    https://www.youtube.com/watch?v=VIDEO_ID
-  Google search:    https://www.google.com/search?q=QUERY
-  Amazon search:    https://www.amazon.com/s?k=QUERY
-  Reddit search:    https://www.reddit.com/search/?q=QUERY
-  GitHub search:    https://github.com/search?q=QUERY&type=repositories
-  Wikipedia:        https://en.wikipedia.org/wiki/QUERY  (spaces → underscores)
-  DuckDuckGo:       https://duckduckgo.com/?q=QUERY
-  * and many more which you think can be useful
-Replace spaces in QUERY with + (e.g. "seedhe maut" → "seedhe+maut").
+## SHORTCUTS (use direct URLs to save steps)
+YouTube:    https://www.youtube.com/results?search_query=QUERY
+Google:     https://www.google.com/search?q=QUERY
+Amazon:     https://www.amazon.com/s?k=QUERY
+Wikipedia:  https://en.wikipedia.org/wiki/QUERY
+(spaces → + in queries)
 
 ## RULES
-- Start with a navigate step using SMART SHORTCUTS whenever possible.
-- Never repeat an action that just failed — use a different approach.
-- If you need to click/type something that requires seeing the live page, add just those dynamic steps after initial navigation.
-- NEVER type passwords, credentials, or login info yourself. If a page needs login, use askUser: {"action": "askUser", "question": "This page requires login. Please log in manually in the browser, then type 'done' here."} — then continue after the user confirms.
-- Use askUser for CAPTCHA, 2FA, login, or genuinely unknown info.
-- For FORMS: use click to select radio buttons and checkboxes. Use type for text inputs. Use selectOption for <select> dropdowns. Look for LABEL or heading elements to understand what each field is asking. Scroll down to find more fields or the submit button.
-- Google Forms: radio options show as role="radio", checkboxes as role="checkbox". Click them to toggle. After filling all visible fields, scroll down for more, then click the Submit button.
-- End with a finish step when the goal is complete.
+1. Navigate first using shortcuts when possible.
+2. Never repeat a failed action — try a different approach.
+3. For forms: click radio/checkbox elements, type into inputs, selectOption for <select>.
+4. Google Forms: radios show as role="radio", checkboxes as role="checkbox". Click to toggle.
+5. NEVER enter passwords or login credentials. Use askUser for login, CAPTCHA, 2FA.
+6. After filling visible form fields, scroll down for more before submitting.
+7. Use finish when the goal is complete.
+8. Plan ${maxChain} steps MAX per chain.
 
-Output ONLY a valid JSON array, no markdown, no explanation.`;
+Respond with ONLY a JSON array. No markdown, no prose, no explanation.`;
 
     try {
-      // Step 1: Reason out loud
-      const reasoningRes = await generateText({
+      const res = await generateText({
         model: getModel(),
         messages: [
           { role: 'system', content: prompt },
-          { role: 'user', content: 'Explain your plan briefly (2-3 sentences) before outputting it.' },
-        ],
-        temperature: 0.3,
-        maxTokens: 150,
-      });
-      const reasoning = reasoningRes.text.trim();
-      if (reasoning) console.log(chalk.yellow(`[Thinking] ${reasoning}`));
-
-      // Step 2: Get the actual chain
-      const chainRes = await generateText({
-        model: getModel(),
-        messages: [
-          { role: 'system', content: prompt },
-          { role: 'user', content: 'Now output ONLY the JSON array of steps. No markdown.' },
+          { role: 'user', content: `Output your step chain as a JSON array for: "${goal}"` },
         ],
         temperature: 0.1,
-        maxTokens: 600,
+        maxTokens: 800,
       });
 
-      let text = chainRes.text.trim();
+      let text = res.text.trim();
+
+      // Strip markdown fences
       text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      // Extract just the JSON array
-      const arrayMatch = text.match(/\[[\s\S]*\]/);
-      if (arrayMatch) text = arrayMatch[0];
+
+      // Extract JSON array
+      const match = text.match(/\[[\s\S]*\]/);
+      if (match) text = match[0];
 
       const chain = JSON.parse(text);
-      if (!Array.isArray(chain)) throw new Error('Planner did not return an array');
-      return chain;
+      if (!Array.isArray(chain)) throw new Error('Not an array');
+
+      // Log the reasoning if the model prepended text before the array
+      const preamble = res.text.substring(0, res.text.indexOf('[')).trim();
+      if (preamble) console.log(chalk.yellow(`[Thinking] ${preamble.substring(0, 200)}`));
+
+      return chain.slice(0, maxChain);
 
     } catch (error) {
-      console.error('[Planner] planChain failed:', error.message);
-      // Fallback: single error action
+      console.error('[Planner] Failed:', error.message);
       return [{ action: 'error', result: error.message }];
     }
   }
 
-  /**
-   * SINGLE STEP MODE — used when re-planning after a dynamic step.
-   * Same as before but kept for compatibility.
-   */
   async decideNextAction(goal, memory, pageState) {
     const chain = await this.planChain(goal, memory, pageState);
-    return chain[0] || { action: 'error', result: 'Empty chain returned' };
+    return chain[0] || { action: 'error', result: 'Empty chain' };
   }
 }
