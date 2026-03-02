@@ -45,10 +45,10 @@ export class Memory {
   getStepLog() {
     // Always show the most recent observation
     const lastObserve = [...this.trace].reverse().find(e => e.type === 'observe');
-    // Last 8 action + outcome pairs
+    // Last 12 action + outcome pairs
     const recent = this.trace
       .filter(e => e.type === 'action' || e.type === 'success' || e.type === 'failure')
-      .slice(-16); // 8 pairs max
+      .slice(-24); // 12 pairs max
 
     const entries = lastObserve ? [lastObserve, ...recent] : recent;
 
@@ -65,6 +65,7 @@ export class Memory {
         if (a.action === 'scroll') return `🔽 scroll ${a.direction}`;
         if (a.action === 'wait') return `⏳ wait ${a.milliseconds}ms`;
         if (a.action === 'extract') return `📋 extract: ${a.instruction}`;
+        if (a.action === 'extractResult') return `📄 FOUND:\n${a.data}`;
         if (a.action === 'askUser') return `❓ asked: ${a.question}`;
         if (a.action === 'userResponse') return `💬 user: ${a.response}`;
         if (a.action === 'finish') return `✅ finish: ${a.result}`;

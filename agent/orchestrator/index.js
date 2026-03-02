@@ -87,10 +87,15 @@ export class Orchestrator {
           this.memory.logOutcome(true, `Waited ${action.milliseconds || 1000}ms`);
           return 'ok';
 
-        case 'extract':
+        case 'extract': {
           console.log(chalk.green(`  📋 ${action.instruction}`));
-          this.memory.logOutcome(true, 'Extract noted');
+          const text = await this.browser.extractText();
+          const summary = text ? text.substring(0, 800) : '(no text found)';
+          console.log(chalk.dim(`  📄 Extracted ${summary.split('\n').length} items`));
+          this.memory.logAction({ action: 'extractResult', data: summary });
+          this.memory.logOutcome(true, `Extracted: ${summary.substring(0, 200)}`);
           return 'replan';
+        }
 
         case 'askUser': {
           await this.browser.unlockPage();

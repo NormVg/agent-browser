@@ -227,6 +227,46 @@ export class BrowserRuntime {
     await this.page.waitForTimeout(ms);
   }
 
+  /**
+   * Extract visible text content from the page — form labels, headings, visible text.
+   * Returns a concise text summary for the planner's memory.
+   */
+  async extractText() {
+    return this.page.evaluate(() => {
+      const parts = [];
+      const seen = new Set();
+
+      // Get headings
+      document.querySelectorAll('h1,h2,h3,h4,label,legend,[role="heading"]').forEach(el => {
+        const text = el.innerText?.trim();
+        if (text && text.length > 2 && !seen.has(text)) {
+          seen.add(text);
+          parts.push(text);
+        }
+      });
+
+      // Get form field labels and their input types
+      document.querySelectorAll('input,textarea,select,[role="radio"],[role="checkbox"],[role="combobox"]').forEach(el => {
+        const label = el.getAttribute('aria-label')
+          || el.getAttribute('placeholder')
+          || el.closest('label')?.innerText?.trim()
+          || el.getAttribute('name')
+          || '';
+        const type = el.type || el.getAttribute('role') || el.tagName.toLowerCase();
+        const required = el.required || el.getAttribute('aria-required') === 'true' ? ' (required)' : '';
+        if (label) {
+          const desc = `[${type}] ${label}${required}`;
+          if (!seen.has(desc)) {
+            seen.add(desc);
+            parts.push(desc);
+          }
+        }
+      });
+
+      return parts.slice(0, 50).join('\n');
+    });
+  }
+
   // ─────────────── VERIFICATION LAYER ───────────────
 
   async verifyAction(action) {
