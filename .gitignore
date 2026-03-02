@@ -6,3 +6,4 @@ logs/*.log
 logs/*.json
 data/memory/*.json
 auth.json
+agent/logs/

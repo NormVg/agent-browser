@@ -2,6 +2,7 @@ import { Planner, STATIC_ACTIONS } from '../planner/index.js';
 import { BrowserRuntime } from '../browser/index.js';
 import { Memory } from '../memory/index.js';
 import { VisionObserver } from '../vision/index.js';
+import { SessionLogger } from '../logger/index.js';
 import chalk from 'chalk';
 
 export class Orchestrator {
@@ -10,9 +11,10 @@ export class Orchestrator {
     this.browser = new BrowserRuntime();
     this.memory = new Memory();
     this.vision = new VisionObserver();
+    this.logger = new SessionLogger();
     this.askUserFn = opts.askUserFn || null;
     this._lastVisualContext = '';
-    this._lastUrl = '';  // Track URL changes to know when to re-run vision
+    this._lastUrl = '';
   }
 
   async promptUser(question) {
@@ -94,6 +96,7 @@ export class Orchestrator {
           console.log(chalk.dim(`  📄 Extracted ${summary.split('\n').length} items`));
           this.memory.logAction({ action: 'extractResult', data: summary });
           this.memory.logOutcome(true, `Extracted: ${summary.substring(0, 200)}`);
+          this.logger.log('extract', { instruction: action.instruction, result: summary });
           return 'replan';
         }
 
@@ -103,6 +106,7 @@ export class Orchestrator {
           await this.browser.lockPage();
           this.memory.logAction({ action: 'userResponse', response: ans });
           this.memory.logOutcome(true, 'Got user answer');
+          this.logger.log('askUser', { question: action.question, answer: ans });
           return 'replan';
         }
 
@@ -124,6 +128,7 @@ export class Orchestrator {
       console.error(chalk.red(`  ✗ ${e.message}`));
       this.memory.logAction({ action: 'error', message: e.message });
       this.memory.logOutcome(false, e.message);
+      this.logger.logError(action.action, e);
       return 'replan';
     }
   }
@@ -133,12 +138,10 @@ export class Orchestrator {
     const icon = v.ok ? chalk.green('  ✓') : chalk.red('  ✗');
     console.log(`${icon} ${v.detail}`);
     this.memory.logOutcome(v.ok, v.detail);
+    this.logger.logAction(action, v.ok ? 'ok' : 'failed', v.detail);
     return v.ok ? 'ok' : 'replan';
   }
 
-  /**
-   * Fast observe — DOM only. Used for mid-chain re-observe.
-   */
   async observeDOM() {
     try {
       const state = await this.browser.observeState();
@@ -149,32 +152,28 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Full observe — DOM + Vision. Used once per round.
-   * Vision only runs on page change (new URL) or first round.
-   */
   async observe(goal = '', forceVision = false) {
     try {
       const state = await this.browser.observeState();
       this.memory.logState(state);
       const visible = state.elements.filter(e => e.inViewport).length;
       console.log(chalk.dim(`  👁  ${state.url} | ${visible} visible / ${state.elements.length} total`));
+      this.logger.logObserve(state.url, state.elements.length, visible);
 
-      // Only run vision if URL changed or forced (first round, after navigate)
       const urlChanged = state.url !== this._lastUrl;
       if (urlChanged || forceVision) {
         this._lastUrl = state.url;
         try {
           const screenshot = await this.browser.captureScreenshot();
           this._lastVisualContext = await this.vision.analyze(screenshot, state.url, goal);
-        } catch (_) {
-          // Vision failed — that's fine, DOM still works
-        }
+          this.logger.logVision(state.url, this._lastVisualContext);
+        } catch (_) { }
       }
 
       return state;
     } catch (e) {
       console.warn(chalk.yellow(`  ⚠ Observe error: ${e.message}`));
+      this.logger.logError('observe', e);
       return { url: 'unknown', title: '', elements: [] };
     }
   }
@@ -182,6 +181,9 @@ export class Orchestrator {
   async run(goal, maxSteps = 25, headless = true) {
     console.log(chalk.blue(`\n[Orchestrator] "${goal}"`));
     console.log(chalk.dim(`  chain-mode | rounds=${maxSteps} | headless=${headless}`));
+    console.log(chalk.dim(`  📝 Log: ${this.logger.filePath}`));
+
+    this.logger.log('start', { goal, maxSteps, headless });
 
     await this.browser.init(headless);
     await this.browser.lockPage();
@@ -192,8 +194,8 @@ export class Orchestrator {
       while (round < maxSteps) {
         round++;
         console.log(chalk.blue(`\n════ Round ${round}/${maxSteps} ════`));
+        this.logger.logRound(round, maxSteps);
 
-        // Full observe with vision on first round
         const state = await this.observe(goal, round === 1);
 
         console.log(chalk.cyan('[Plan] Generating chain...'));
@@ -201,6 +203,7 @@ export class Orchestrator {
         try {
           chain = await this.planner.planChain(goal, this.memory, state, this._lastVisualContext);
         } catch (e) {
+          this.logger.logError('planner', e);
           return this.buildPartialReport(goal, `Planner failed: ${e.message}`);
         }
 
@@ -208,21 +211,25 @@ export class Orchestrator {
           return this.buildPartialReport(goal, 'Planner returned empty chain');
         }
 
+        // Log the full planner interaction
+        this.logger.logPlanner(
+          this.memory.getStepLog(),
+          JSON.stringify(chain),
+          chain,
+        );
+
         console.log(chalk.cyan(`[Chain] ${chain.length} step(s):`));
         chain.forEach((s, i) => {
           const detail = s.url ? ` → ${s.url}` : s.elementId ? ` #${s.elementId}` : s.result ? ` → "${s.result.substring(0, 50)}"` : '';
           console.log(chalk.dim(`  ${i + 1}. ${s.action}${detail}`));
         });
 
-        // Execute chain
         let prevAction = null;
         for (let i = 0; i < chain.length; i++) {
           const action = chain[i];
           const isLast = i === chain.length - 1;
           console.log(chalk.dim(`\n  [${i + 1}/${chain.length}] ${action.action}`));
 
-          // Smart re-observe: only before dynamic actions AND only if previous action
-          // could have changed the DOM (navigate, scroll, click that wasn't a form toggle)
           if (['click', 'type', 'selectOption'].includes(action.action) && i > 0) {
             const prevChanged = prevAction && (
               prevAction.action === 'navigate' ||
@@ -238,19 +245,25 @@ export class Orchestrator {
           const result = await this.executeAction(action);
           prevAction = action;
 
-          if (result === 'finish') return action.result;
+          if (result === 'finish') {
+            this.logger.logEnd(goal, action.result);
+            return action.result;
+          }
 
           if (result === 'replan') break;
 
-          // Tiny delay between steps — just enough for DOM to settle
           if (!isLast) await this.browser.wait(200);
         }
       }
 
-      return this.buildPartialReport(goal, `Max rounds (${maxSteps}) reached`);
+      const report = this.buildPartialReport(goal, `Max rounds (${maxSteps}) reached`);
+      this.logger.logEnd(goal, report);
+      return report;
 
     } catch (error) {
       console.error(chalk.red(`\n❌ Runtime error: ${error.message}\n`));
+      this.logger.logError('runtime', error);
+      this.logger.logEnd(goal, `Runtime error: ${error.message}`);
       return this.buildPartialReport(goal, `Runtime error: ${error.message}`);
     } finally {
       await this.browser.unlockPage();
